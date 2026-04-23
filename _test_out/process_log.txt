@@ -1,0 +1,76 @@
+14:33:33 [INFO] === Inicio consolidación ===
+14:33:33 [INFO] Carpeta origen: D:\data_consolidation_agent\CTAS CTES AUTOMATIZACION\CTAS CTES AUTOMATIZACION
+14:33:33 [INFO] Archivo destino: D:\data_consolidation_agent\_test_out\consolidado.xlsx
+14:33:33 [INFO] Período: 2026-03
+14:33:33 [INFO] Archivos detectados: 28
+14:33:34 [INFO] Procesando ALLIANZ CTA CTE MARZO 2026.xlsx con parser=allianz
+14:33:34 [INFO]  -> 76 filas generadas, 0 filas rechazadas
+14:33:34 [INFO] Procesando ANDINA ART CTA CTE MARZO 2026.xls con parser=andina_art
+14:33:34 [INFO]  -> 67 filas generadas, 0 filas rechazadas
+14:33:34 [INFO] Procesando ASOCIART CTA CTE MARZO 2026.xlsx con parser=asociart
+14:33:34 [INFO]  -> 10 filas generadas, 0 filas rechazadas
+14:33:34 [INFO] Procesando EXPERTA ART CTA CTE MARZO 2026.xlsx con parser=experta_art
+14:33:34 [INFO]  -> 63 filas generadas, 0 filas rechazadas
+14:33:34 [INFO] Procesando EXPERTA SAU CTA CTE MARZO 2026.xlsx con parser=experta_sau
+14:33:34 [INFO]  -> 203 filas generadas, 0 filas rechazadas
+14:33:34 [INFO] Procesando FEDPAT CTA CTE MARZO 2026.xlsx con parser=fedpat
+14:33:34 [INFO]  -> 2186 filas generadas, 0 filas rechazadas
+14:33:34 [INFO] Procesando GALENO LIFE CTA CTE MARZO 2026.xlsx con parser=galeno_life
+14:33:34 [INFO]  -> 131 filas generadas, 0 filas rechazadas
+14:33:34 [INFO] Procesando GALICIA CTA CTE MARZO 2026.xlsx con parser=galicia
+14:33:34 [INFO]  -> 48 filas generadas, 0 filas rechazadas
+14:33:34 [INFO] Procesando INTEGRITY CTA CTE MARZO 2026.xlsx con parser=integrity
+14:33:34 [INFO]  -> 113 filas generadas, 0 filas rechazadas
+14:33:34 [INFO] Procesando LA HOLANDO CTA CTE MARZO 2026.xlsx con parser=la_holando
+14:33:34 [INFO]  -> 15 filas generadas, 0 filas rechazadas
+14:33:34 [INFO] Procesando LA MERCANTIL ANDINA CTA CTE MARZO 2026.xlsx con parser=mercantil_andina
+14:33:35 [INFO]  -> 3663 filas generadas, 0 filas rechazadas
+14:33:35 [INFO] Procesando LA MERCANTIL ANDINA USD CTA CTE MARZO 2026.xlsx con parser=mercantil_andina_usd
+14:33:35 [INFO]  -> 190 filas generadas, 0 filas rechazadas
+14:33:35 [INFO] Procesando LA SEGUNDA ART CTA CTE MARZO 2026.xlsx con parser=la_segunda_art
+14:33:35 [INFO]  -> 22 filas generadas, 0 filas rechazadas
+14:33:35 [INFO] Procesando LA SEGUNDA GRALES CTA CTE MARZO 2026.xlsx con parser=la_segunda_grales
+14:33:35 [INFO]  -> 123 filas generadas, 0 filas rechazadas
+14:33:35 [INFO] Procesando LA SEGUNDA PERSONAS CTA CTE MARZO 2026.xlsx con parser=la_segunda_personas
+14:33:35 [INFO]  -> 195 filas generadas, 0 filas rechazadas
+14:33:35 [INFO] Procesando LIBRA CTA CTE MARZO 2026.pdf con parser=libra_pdf
+14:33:36 [INFO]  -> 8 filas generadas, 0 filas rechazadas
+14:33:36 [INFO] Procesando PARANA ART CTA CTE MARZO 2026.pdf con parser=parana_art
+14:33:36 [INFO]  -> 4 filas generadas, 0 filas rechazadas
+14:33:36 [INFO] Procesando PREMIAR CTA CTE MARZO 2026.xlsx con parser=premiar
+14:33:36 [INFO]  -> 11 filas generadas, 0 filas rechazadas
+14:33:36 [INFO] Procesando PREVENCION ART CTA CTE MARZO 2026.xlsx con parser=prevencion_art
+14:33:36 [INFO]  -> 14 filas generadas, 0 filas rechazadas
+14:33:36 [INFO] Procesando PROVINCIA ART CTA CTE MARZO 2026.xlsx con parser=provincia_art
+14:33:36 [INFO]  -> 19 filas generadas, 0 filas rechazadas
+14:33:36 [INFO] Procesando SAN CRISTOBAL CTA CTE MARZO 2026.xlsx con parser=san_cristobal
+14:33:36 [INFO]  -> 2323 filas generadas, 0 filas rechazadas
+14:33:36 [INFO] Procesando SAN CRISTOBAL USD CTA CTE MARZO 2026.xlsx con parser=san_cristobal_usd
+14:33:36 [INFO]  -> 7 filas generadas, 0 filas rechazadas
+14:33:36 [INFO] Procesando SANCOR CTA CTE MARZO 2026.xlsx con parser=sancor
+14:33:37 [INFO]  -> 398 filas generadas, 0 filas rechazadas
+14:33:37 [INFO] Procesando SMG ART CTA CTE MARZO 2026.xlsx con parser=smg_art
+14:33:37 [INFO]  -> 365 filas generadas, 0 filas rechazadas
+14:33:37 [INFO] Procesando SMG CTA CTE MARZO 2026.xlsx con parser=smg
+14:33:37 [INFO]  -> 1689 filas generadas, 0 filas rechazadas
+14:33:37 [INFO] Procesando SMG LIFE CTA CTE MARZO 2026.xlsx con parser=smg_life
+14:33:37 [INFO]  -> 197 filas generadas, 0 filas rechazadas
+14:33:37 [INFO] Procesando VICTORIA ART CTA CTE MARZO 2026.pdf con parser=victoria_art_pdf
+14:33:37 [INFO]  -> 0 filas generadas, 1 filas rechazadas
+14:33:37 [INFO] Procesando ZURICH CTA CTE MARZO 2026.xlsx con parser=zurich
+14:33:38 [INFO]  -> 73 filas generadas, 0 filas rechazadas
+14:33:38 [WARNING] Fila sin ASEGURADO (GALENO LIFE CTA CTE MARZO 2026.xlsx row 57)
+14:33:38 [WARNING] Fila sin ASEGURADO (SMG LIFE CTA CTE MARZO 2026.xlsx row 102)
+14:33:38 [WARNING] Fila sin ASEGURADO (SMG LIFE CTA CTE MARZO 2026.xlsx row 103)
+14:33:38 [WARNING] Fila sin ASEGURADO (SMG LIFE CTA CTE MARZO 2026.xlsx row 104)
+14:33:38 [WARNING] Fila sin ASEGURADO (SMG LIFE CTA CTE MARZO 2026.xlsx row 199)
+14:33:38 [WARNING] Fila sin ASEGURADO (SMG LIFE CTA CTE MARZO 2026.xlsx row 200)
+14:33:38 [WARNING] Fila sin ASEGURADO (SMG LIFE CTA CTE MARZO 2026.xlsx row 201)
+14:33:38 [WARNING] [conteo] SANCOR: generados=398 esperados=405 (diff=-7)
+14:33:38 [WARNING] [conteo] SMG: generados=1689 esperados=1678 (diff=+11)
+14:33:38 [WARNING] [conteo] SMG ART: generados=365 esperados=340 (diff=+25)
+14:33:38 [WARNING] [conteo] SMG LIFE: generados=197 esperados=194 (diff=+3)
+14:33:43 [INFO] Excel generado: D:\data_consolidation_agent\_test_out\consolidado.xlsx
+14:33:43 [INFO] Filas rechazadas: 1 (D:\data_consolidation_agent\_test_out\rejected_rows.csv)
+14:33:43 [INFO] Resumen guardado: D:\data_consolidation_agent\_test_out\summary.json
+14:33:43 [INFO] === Fin consolidación en 9.26s ===

@@ -4,9 +4,9 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .config import RunParams
-from .controller import ConsolidationController
-from .gui import launch as launch_gui
+from app.config import RunParams
+from app.controller import ConsolidationController
+from app.gui import launch as launch_gui
 
 
 def main() -> int:

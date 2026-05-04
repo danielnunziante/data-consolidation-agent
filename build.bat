@@ -32,6 +32,7 @@ python -m PyInstaller ^
     --windowed ^
     --name ConsolidadorCCTT ^
     --collect-submodules app ^
+    --collect-all customtkinter ^
     --collect-submodules pdfplumber ^
     --collect-submodules pdfminer ^
     --collect-submodules openpyxl ^

@@ -47,8 +47,17 @@ def parse(file_path: str, fecha: date) -> ParseResult:
     df = slice_as_dataframe(df_raw, header_row)
 
     columns = list(df.columns)
+    log.debug("LA HOLANDO columnas: %s", columns)
     c_rama = find_col(columns, "Rama")
-    c_tipo_op = find_col(columns, "TipoOp")
+    c_tipo_op = find_col(
+        columns,
+        "Tipo de Operacion",
+        "Tipo de Operación",
+        "TipoOperacion",
+        "Tipo Operacion",
+        "TipoOp",
+        "Tipo Op",
+    )
     c_nro_op = find_col(columns, "NroOperacion")
     c_det = find_col(columns, "Detalle Operacion")
     c_com = find_col(columns, "Com.Bruta")

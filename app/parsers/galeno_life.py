@@ -52,6 +52,7 @@ def parse(file_path: str, fecha: date) -> ParseResult:
     c_aseg = find_col(list(df.columns), "Cliente/Razón Social", "Cliente")
     c_imp = find_col(list(df.columns), "Importe Cobranzas")
     c_com = find_col(list(df.columns), "Comisión Legajo", "Comision Legajo")
+    c_com_org = find_col(list(df.columns), "Comis Organizador", "Comision Organizador", "Comisión Organizador")
 
     if not all([c_pol, c_aseg, c_imp, c_com]):
         reject(result, Path(file_path).name, f"Columnas insuficientes: {list(df.columns)}", source_sheet=sheet_name)
@@ -62,25 +63,82 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         poliza = _clean_poliza(row[c_pol])
         if not poliza:
             continue
+        source_row = idx + header_row + 2
         prima = to_float(row[c_imp])
         premio = prima * 1.40 if prima is not None else None
+        com_pr = to_float(row[c_com])
+        com_org = to_float(row[c_com_org]) if c_com_org else None
+
+        # Manual: si están las dos columnas -> PR + AY. Si solo Comis Organizador -> IND.
+        # TODO confirmar con cliente: criterio cuando ambas comisiones aparecen pero alguna es 0.
         try:
-            rec = make_record(
-                fecha=fecha,
-                poliza=poliza,
-                asegurado=row[c_aseg],
-                seccion=row[c_prod] if c_prod else "",
-                compania=COMPANY,
-                tipo="PR",
-                comisiones=row[c_com],
-                prima=prima,
-                premio=premio,
-                source_file=fname,
-                source_sheet=sheet_name,
-                source_row=idx + header_row + 2,
-            )
-            result.records.append(rec)
+            if com_pr is not None and com_pr != 0:
+                rec_pr = make_record(
+                    fecha=fecha,
+                    poliza=poliza,
+                    asegurado=row[c_aseg],
+                    seccion=row[c_prod] if c_prod else "",
+                    compania=COMPANY,
+                    tipo="PR",
+                    comisiones=com_pr,
+                    prima=prima,
+                    premio=premio,
+                    source_file=fname,
+                    source_sheet=sheet_name,
+                    source_row=source_row,
+                )
+                result.records.append(rec_pr)
+                if com_org is not None and com_org != 0:
+                    rec_ay = make_record(
+                        fecha=fecha,
+                        poliza=poliza,
+                        asegurado=row[c_aseg],
+                        seccion=row[c_prod] if c_prod else "",
+                        compania=COMPANY,
+                        tipo="AY",
+                        comisiones=com_org,
+                        prima=None,
+                        premio=None,
+                        source_file=fname,
+                        source_sheet=sheet_name,
+                        source_row=source_row,
+                    )
+                    result.records.append(rec_ay)
+            elif com_org is not None and com_org != 0:
+                rec_ind = make_record(
+                    fecha=fecha,
+                    poliza=poliza,
+                    asegurado=row[c_aseg],
+                    seccion=row[c_prod] if c_prod else "",
+                    compania=COMPANY,
+                    tipo="IND",
+                    comisiones=com_org,
+                    prima=None,
+                    premio=None,
+                    source_file=fname,
+                    source_sheet=sheet_name,
+                    source_row=source_row,
+                )
+                result.records.append(rec_ind)
+            else:
+                # ninguna columna trae comisión, dejamos el comportamiento
+                # original (PR con comisión vacía) para no perder la fila.
+                rec = make_record(
+                    fecha=fecha,
+                    poliza=poliza,
+                    asegurado=row[c_aseg],
+                    seccion=row[c_prod] if c_prod else "",
+                    compania=COMPANY,
+                    tipo="PR",
+                    comisiones=com_pr,
+                    prima=prima,
+                    premio=premio,
+                    source_file=fname,
+                    source_sheet=sheet_name,
+                    source_row=source_row,
+                )
+                result.records.append(rec)
         except Exception as exc:
             log.warning("GALENO LIFE fila %s: %s", idx, exc)
-            reject(result, fname, f"Error: {exc}", source_sheet=sheet_name, source_row=idx, raw=row.to_dict())
+            reject(result, fname, f"Error: {exc}", source_sheet=sheet_name, source_row=source_row, raw=row.to_dict())
     return result

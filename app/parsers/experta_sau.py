@@ -116,10 +116,12 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         else:
             continue  # tipos no esperados se ignoran
 
-        # Recortar póliza si 8 dígitos y Ramo != FLOTA -> 6 dígitos
+        # Manual: pólizas de 8 dígitos (salvo Ramo "FLOTA") -> primeros 6 por
+        # izquierda + sufijo literal "01" (no "1"). El "01" sobrevive a
+        # clean_policy porque no contiene comas, comillas ni sufijo ".0".
         poliza = clean_policy(poliza_raw)
         if normalize(ramo) != "FLOTA" and len(poliza) >= 8 and poliza.isdigit():
-            poliza = poliza[:6]
+            poliza = poliza[:6] + "01"
 
         # Comisión - Importe (AR$) según spec. Si no está, calcular prima * %
         comisiones = None

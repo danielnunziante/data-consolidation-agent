@@ -38,7 +38,7 @@ def parse(file_path: str, fecha: date) -> ParseResult:
     columns = list(df.columns)
     c_pol = find_col(columns, "Poliza / Endoso", "Poliza/Endoso", "Poliza")
     c_tom = find_col(columns, "Tomador")
-    c_prima = find_col(columns, "Prima $")
+    c_prima = find_col(columns, "Prima Tarifa $", "Prima $")
     c_com = find_col(columns, "Comisión pagada $", "Comision pagada $")
 
     if not all([c_pol, c_tom, c_prima, c_com]):

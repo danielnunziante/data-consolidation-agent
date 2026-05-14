@@ -36,6 +36,7 @@ from tkinter import (
 from .config import RunParams
 from .controller import ConsolidationController
 from .models import RunSummary
+from .utils.fx import FX_COMPANIES, read_fx_config, write_fx_config
 
 
 PERIOD_RE = re.compile(r"^\d{4}-\d{2}$")
@@ -101,6 +102,14 @@ class ConsolidatorApp:
         self.var_period = StringVar(value=default_period)
         self.var_status = StringVar(value="Listo para procesar")
         self.var_progress_label = StringVar(value="")
+
+        # Tipos de cambio USD: una StringVar por compañía, pre-llenadas con
+        # el último valor persistido en config/fx.json.
+        fx_persisted = read_fx_config()
+        self.var_fx: dict[str, StringVar] = {}
+        for display, key in FX_COMPANIES:
+            v = fx_persisted.get(key)
+            self.var_fx[key] = StringVar(value=("" if v is None else f"{v:g}"))
 
         self.var_input.trace_add("write", lambda *_: self._update_open_folder_state())
         self.var_output.trace_add("write", lambda *_: self._update_open_folder_state())
@@ -196,6 +205,7 @@ class ConsolidatorApp:
 
         self._build_header(scroll)
         self._build_form_card(scroll)
+        self._build_fx_card(scroll)
         self._build_action_card(scroll)
         self._build_log_card(scroll)
 
@@ -313,6 +323,56 @@ class ConsolidatorApp:
             text="Atajo: Ctrl+Enter o F5 para procesar cuando los datos sean válidos.",
             font=FONT_HINT, text_color=TEXT_MUTED, anchor="w",
         ).grid(row=8, column=0, sticky="ew", pady=(16, 0))
+
+    # ---------- Tarjeta de tipos de cambio USD ----------
+    def _build_fx_card(self, parent) -> None:
+        card = self._card(parent)
+        card.pack(fill=X, padx=PAD_X, pady=8)
+
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill=X, padx=PAD_INNER, pady=PAD_INNER)
+        inner.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            inner,
+            text="TIPOS DE CAMBIO USD (OPCIONAL)",
+            font=FONT_OVERLINE,
+            text_color=TEXT_MUTED,
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 4))
+
+        ctk.CTkLabel(
+            inner,
+            text=(
+                "1 USD = X ARS para cada cuenta liquidada en dólares. Si lo dejás "
+                "vacío, las filas en dólares de esa compañía quedarán como "
+                "rechazadas en el log."
+            ),
+            font=FONT_HINT,
+            text_color=TEXT_MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=WRAP_TEXT,
+        ).grid(row=1, column=0, sticky="ew", pady=(0, 10))
+
+        rows_holder = ctk.CTkFrame(inner, fg_color="transparent")
+        rows_holder.grid(row=2, column=0, sticky="ew")
+        rows_holder.grid_columnconfigure(1, weight=1)
+
+        self._fx_entries: dict[str, ctk.CTkEntry] = {}
+        for i, (display, key) in enumerate(FX_COMPANIES):
+            ctk.CTkLabel(
+                rows_holder,
+                text=display,
+                font=FONT_LABEL,
+                text_color=TEXT_SECONDARY,
+                anchor="w",
+            ).grid(row=i, column=0, sticky="w", padx=(0, 14), pady=(0 if i == 0 else 8, 0))
+
+            ent = self._entry(rows_holder, self.var_fx[key])
+            ent.configure(placeholder_text="1234.56")
+            ent.grid(row=i, column=1, sticky="ew", pady=(0 if i == 0 else 8, 0))
+            self._fx_entries[key] = ent
 
     # ---------- Barra de acciones ----------
     def _build_action_card(self, parent) -> None:
@@ -501,6 +561,8 @@ class ConsolidatorApp:
         self.ent_output.configure(state=s)
         self.ent_period.configure(state=s)
         self.btn_clear_log.configure(state=s)
+        for ent in getattr(self, "_fx_entries", {}).values():
+            ent.configure(state=s)
 
     def _set_status_appearance(self, mode: str) -> None:
         self._status_mode = mode
@@ -608,6 +670,36 @@ class ConsolidatorApp:
             return
         if not PERIOD_RE.match(period):
             messagebox.showerror("Revisá los datos", "El período debe tener formato AAAA-MM (ej. 2026-05).")
+            return
+
+        # Validar y persistir tipos de cambio USD (opcionales).
+        fx_values: dict[str, float] = {}
+        for display, key in FX_COMPANIES:
+            raw = self.var_fx[key].get().strip().replace(",", ".")
+            if not raw:
+                continue
+            try:
+                v = float(raw)
+            except ValueError:
+                messagebox.showerror(
+                    "Revisá los datos",
+                    f"El tipo de cambio de {display} no es un número válido: «{raw}».",
+                )
+                return
+            if v <= 0:
+                messagebox.showerror(
+                    "Revisá los datos",
+                    f"El tipo de cambio de {display} debe ser mayor a 0.",
+                )
+                return
+            fx_values[key] = v
+        try:
+            write_fx_config(fx_values)
+        except Exception as exc:
+            messagebox.showerror(
+                "Tipos de cambio",
+                f"No se pudo guardar config/fx.json: {exc}",
+            )
             return
 
         self._running = True

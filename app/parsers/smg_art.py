@@ -61,7 +61,16 @@ def parse(file_path: str, fecha: date) -> ParseResult:
 
     c_cliente = col_for("Cliente")
     c_contrato = col_for("Contrato")
-    c_importe = col_for("Importe (3)", "Importe(3)", "Importe")
+    # Manual: PRIMA = PREMIO = Importe(3). Si no aparece el subíndice, buscamos
+    # la 3ra columna cuyo encabezado contenga la palabra "Importe" (sin caer en
+    # el primer "Importe" suelto, que suele ser otro concepto).
+    c_importe = col_for("Importe (3)", "Importe(3)")
+    if c_importe is None:
+        importe_positions = [
+            i for i, h in enumerate(header_cells) if "IMPORTE" in normalize(h)
+        ]
+        if len(importe_positions) >= 3:
+            c_importe = importe_positions[2]
     c_com_org = col_for("Com. Org. (5)", "Com. Org.")
     c_com_prod = col_for("Com. Prod. (5)", "Com. Prod.")
 
@@ -70,11 +79,38 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         return result
 
     # 2) Escanear filas detectando bloques por líneas "Productor: COBERTURAS..."
-    # Aceptamos los dos primeros bloques. Dentro de cada bloque hay filas de datos
-    # (Cliente, CUIT, Contrato, Fechas, Importe, ...) y filas vacías entre bloques.
+    # Aceptamos los dos primeros bloques. Para cada bloque determinamos si la
+    # comisión efectiva está en Com.Org o Com.Prod mirando qué columna tiene
+    # valores no-cero en las primeras filas del bloque (no por orden de bloque).
+    BLOCK_PEEK = 10  # filas a inspeccionar antes de decidir la columna
+
+    def _decide_usar_org(start: int) -> bool:
+        org_hits = prod_hits = 0
+        seen = 0
+        for j in range(start, min(start + 60, n_rows)):
+            row_j = df.iloc[j].tolist()
+            raw_j = normalize(" ".join(safe_str(v) for v in row_j))
+            if "PRODUCTOR:" in raw_j and "COBERTURAS" in raw_j:
+                break
+            cli = safe_str(row_j[c_cliente]) if c_cliente < len(row_j) else ""
+            con = safe_str(row_j[c_contrato]) if c_contrato < len(row_j) else ""
+            if not con or normalize(cli).startswith("CLIENTE"):
+                continue
+            org_v = to_float(row_j[c_com_org]) if c_com_org is not None and c_com_org < len(row_j) else None
+            prod_v = to_float(row_j[c_com_prod]) if c_com_prod is not None and c_com_prod < len(row_j) else None
+            if org_v not in (None, 0):
+                org_hits += 1
+            if prod_v not in (None, 0):
+                prod_hits += 1
+            seen += 1
+            if seen >= BLOCK_PEEK:
+                break
+        # Si ninguna tiene datos asumimos Prod (default histórico)
+        return org_hits > prod_hits
+
     bloques_aceptados = 0
     bloque_activo = False
-    usar_org = False  # True si estamos en bloque /B (sub-bloque ORG)
+    usar_org = False
 
     for i in range(header_row + 1, n_rows):
         row = df.iloc[i].tolist()
@@ -85,8 +121,13 @@ def parse(file_path: str, fecha: date) -> ParseResult:
             if bloques_aceptados > 2:
                 break
             bloque_activo = True
-            # "/B" indica el segundo bloque (sub-organizador)
-            usar_org = "/B" in raw_str.upper() or bloques_aceptados == 2
+            usar_org = _decide_usar_org(i + 1)
+            log.debug(
+                "SMG ART bloque %s: usar_org=%s (header=%r)",
+                bloques_aceptados,
+                usar_org,
+                raw_str.strip()[:80],
+            )
             continue
 
         if not bloque_activo:
@@ -100,7 +141,6 @@ def parse(file_path: str, fecha: date) -> ParseResult:
             continue
         if not contrato or not importe_v:
             continue
-        # saltear filas que son encabezados repetidos dentro del bloque
         if normalize(cliente).startswith("CLIENTE"):
             continue
 
@@ -108,9 +148,6 @@ def parse(file_path: str, fecha: date) -> ParseResult:
             comis = to_float(row[c_com_org]) if c_com_org is not None and c_com_org < len(row) else None
         else:
             comis = to_float(row[c_com_prod]) if c_com_prod is not None and c_com_prod < len(row) else None
-            # Algunos archivos invierten las columnas (Prod vacío, Org real). Si comis es None probamos la otra.
-            if comis is None and c_com_org is not None and c_com_org < len(row):
-                comis = to_float(row[c_com_org])
 
         try:
             rec = make_record(

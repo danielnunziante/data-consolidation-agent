@@ -24,25 +24,21 @@ COMPANY = "SMG LIFE"
 def _split_poliza(raw: str) -> tuple[str, str]:
     """Devuelve (seccion, poliza) desde una póliza tipo `CVO9-0-41695-99-0-45132-0`.
 
-    La sección es el primer bloque alfa-numérico; la póliza el primer bloque
-    puramente numérico largo.
+    Manual: "SEPARAR LA COLUMNA POLIZA POR `-` Y ES EL NRO QUE QUEDA EN LA
+    TERCER COLUMNA". La sección es el primer bloque (índice 0).
     """
     s = safe_str(raw)
     if not s:
         return ("", "")
-    parts = re.split(r"[-/]", s)
+    parts = [p.strip() for p in re.split(r"[-/]", s)]
     seccion = parts[0] if parts else ""
-    poliza_candidate = ""
-    for p in parts[1:]:
-        if p.isdigit() and len(p) >= 4:
-            poliza_candidate = p
-            break
-    if not poliza_candidate:
-        for p in parts:
+    poliza = parts[2] if len(parts) >= 3 else ""
+    if not poliza:
+        for p in parts[1:]:
             if p.isdigit():
-                poliza_candidate = p
+                poliza = p
                 break
-    return (seccion, poliza_candidate or s)
+    return (seccion, poliza or s)
 
 
 def parse(file_path: str, fecha: date) -> ParseResult:
@@ -65,6 +61,8 @@ def parse(file_path: str, fecha: date) -> ParseResult:
     c_base = find_col(columns, "Base cálculo", "Base calculo")
     c_com = find_col(columns, "Comisión", "Comision")
     c_grupo = find_col(columns, "Grupo Movimiento")
+    c_moneda = find_col(columns, "Moneda", "Cod Moneda", "CodMoneda")
+    c_cotiz = find_col(columns, "Cotizacion", "Cotización", "Tipo de cambio", "TC")
 
     if not all([c_pol, c_aseg, c_com, c_base]):
         reject(result, Path(file_path).name, f"Columnas insuficientes: {columns}", source_sheet=sheet_name)
@@ -84,6 +82,24 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         com_bruto = to_float(row[c_com])
         comisiones = com_bruto / 1.21 if com_bruto is not None else None
         prima = to_float(row[c_base])
+
+        # Manual: las primas en USD se llevan a pesos usando la columna Cotizacion.
+        is_usd = False
+        if c_moneda is not None:
+            mon_norm = normalize(row[c_moneda])
+            if mon_norm and any(tok in mon_norm for tok in ("USD", "U$S", "DOLAR", "DOL")):
+                is_usd = True
+        if is_usd and prima is not None and c_cotiz is not None:
+            tc = to_float(row[c_cotiz])
+            if tc and tc > 0:
+                prima = prima * tc
+            else:
+                log.warning(
+                    "SMG LIFE fila %s: USD sin Cotizacion válida (%r)",
+                    idx,
+                    row[c_cotiz] if c_cotiz else None,
+                )
+
         premio = prima * 1.40 if prima is not None else None
 
         try:

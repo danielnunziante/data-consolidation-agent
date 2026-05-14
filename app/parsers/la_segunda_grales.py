@@ -40,8 +40,13 @@ def parse(file_path: str, fecha: date, company_name: str = COMPANY) -> ParseResu
     c_sec = find_col(columns, "Seccion")
     c_prima = find_col(columns, "Prima")
     c_premio = find_col(columns, "Premio")
-    c_com_pr = find_col(columns, "Com.Prima")
+    c_com_pr = find_col(columns, "Com.Prima MC", "Com.Prima")
     c_com_prem = find_col(columns, "Com.s/premio")
+    c_mon = find_col(columns, "Mon", "Moneda")
+    # Manual: la columna Com.MC viene en pesos y en USD (en columnas
+    # contiguas). Usamos el cociente como TC para convertir prima/premio.
+    c_com_mc_pesos = find_col(columns, "Com.MC pesos", "Com.Prima MC pesos", "Com Prima MC pesos")
+    c_com_mc_usd = find_col(columns, "Com.MC USD", "Com.Prima MC USD", "Com Prima MC USD")
 
     if not all([c_ref, c_aseg, c_sec, c_prima, c_premio, c_com_pr]):
         reject(result, Path(file_path).name, f"Columnas insuficientes: {columns}", source_sheet=sheet_name)
@@ -53,6 +58,29 @@ def parse(file_path: str, fecha: date, company_name: str = COMPANY) -> ParseResu
         if not poliza or poliza == "0":
             continue
         source_row = idx + header_row + 2
+
+        prima_v = to_float(row[c_prima])
+        premio_v = to_float(row[c_premio])
+        com_pr_v = to_float(row[c_com_pr])
+
+        # Conversión USD por fila (manual C.5).
+        is_usd = False
+        if c_mon is not None:
+            mon_norm = safe_str(row[c_mon]).strip().upper()
+            if mon_norm and mon_norm not in {"$", "PESOS", "ARS", "PESO"}:
+                if any(tok in mon_norm for tok in ("USD", "U$S", "DOLAR", "DOL")):
+                    is_usd = True
+        if is_usd and c_com_mc_pesos is not None and c_com_mc_usd is not None:
+            pesos_v = to_float(row[c_com_mc_pesos])
+            usd_v = to_float(row[c_com_mc_usd])
+            if pesos_v is not None and usd_v not in (None, 0):
+                tc = pesos_v / usd_v
+                if tc > 0:
+                    if prima_v is not None:
+                        prima_v = prima_v * tc
+                    if premio_v is not None:
+                        premio_v = premio_v * tc
+
         try:
             rec_pr = make_record(
                 fecha=fecha,
@@ -61,9 +89,9 @@ def parse(file_path: str, fecha: date, company_name: str = COMPANY) -> ParseResu
                 seccion=row[c_sec],
                 compania=company_name,
                 tipo="PR",
-                comisiones=row[c_com_pr],
-                prima=row[c_prima],
-                premio=row[c_premio],
+                comisiones=com_pr_v,
+                prima=prima_v,
+                premio=premio_v,
                 source_file=fname,
                 source_sheet=sheet_name,
                 source_row=source_row,

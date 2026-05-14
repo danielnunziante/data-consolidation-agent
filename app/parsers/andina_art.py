@@ -97,6 +97,15 @@ def parse(file_path: str, fecha: date) -> ParseResult:
                 continue
             prima_v = cells[i_prima]
             comis_v = cells[i_com]
+            # Manual: "CORREGIR PRIMA Y CALCULAR COMISION = 5% SOBRE PRIMA".
+            # Si Comision $ viene vacía / None, la derivamos de la prima.
+            # TODO confirmar con cliente: si esto debería aplicarse siempre o
+            # solo como fallback.
+            comis_num = to_float(comis_v)
+            if comis_num is None:
+                prima_num = to_float(prima_v)
+                if prima_num is not None:
+                    comis_v = prima_num * 0.05
             try:
                 rec = make_record(
                     fecha=fecha,

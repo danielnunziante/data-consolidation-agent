@@ -25,12 +25,31 @@ def parse(file_path: str, fecha: date) -> ParseResult:
     sheets = read_excel_sheets(file_path)
     fname = Path(file_path).name
 
+    known_sheets = {"152526", "213871"}
     for sheet_name, df_raw in sheets.items():
+        clean = sheet_name.strip()
+        if clean not in known_sheets:
+            # TODO confirmar con cliente: aparecieron hojas nuevas en SANCOR
+            # ("ME APARECIO UNA SOLAPA MAS"). Intentamos procesarla como
+            # 213871 (PR+AY) si la estructura coincide; si no, rechazamos.
+            log.info(
+                "SANCOR hoja desconocida: %s — intentando procesar como 213871",
+                sheet_name,
+            )
+
         header_row = detect_header_row(
             df_raw, ["Nro Oficial Poliza", "Denominacion Cliente", "Ramo", "Comision", "Prima Unif"]
         )
         if header_row is None:
-            reject(result, fname, "No se detectó cabecera", source_sheet=sheet_name)
+            if clean in known_sheets:
+                reject(result, fname, "No se detectó cabecera", source_sheet=sheet_name)
+            else:
+                reject(
+                    result,
+                    fname,
+                    "Hoja desconocida sin estructura reconocida",
+                    source_sheet=sheet_name,
+                )
             continue
         df = slice_as_dataframe(df_raw, header_row)
 
@@ -48,7 +67,9 @@ def parse(file_path: str, fecha: date) -> ParseResult:
             reject(result, fname, f"Columnas insuficientes: {columns}", source_sheet=sheet_name)
             continue
 
-        clean = sheet_name.strip()
+        # Para hojas desconocidas que sí matchearon la estructura, las tratamos
+        # como 213871 (PR + AY) que es el formato general.
+        sheet_kind = clean if clean in known_sheets else "213871"
         for idx, row in df.iterrows():
             poliza = safe_str(row[c_pol])
             if poliza.lower() in {"nan", ""}:
@@ -57,7 +78,7 @@ def parse(file_path: str, fecha: date) -> ParseResult:
             aseg = row[c_aseg]
             source_row = idx + header_row + 2
 
-            if clean == "152526":
+            if sheet_kind == "152526":
                 comision = to_float(row[c_com])
                 if (comision is None or comision == 0) and c_adic_extra:
                     comision = to_float(row[c_adic_extra])
@@ -84,7 +105,7 @@ def parse(file_path: str, fecha: date) -> ParseResult:
                 except Exception as exc:
                     log.warning("SANCOR 152526 fila %s: %s", idx, exc)
                     reject(result, fname, f"Error IND: {exc}", source_sheet=sheet_name, source_row=source_row, raw=row.to_dict())
-            elif clean == "213871":
+            elif sheet_kind == "213871":
                 com_v = to_float(row[c_com])
                 prima_v = to_float(row[c_prima_unif]) if c_prima_unif else None
                 premio_v = to_float(row[c_premio_cap]) if c_premio_cap else None

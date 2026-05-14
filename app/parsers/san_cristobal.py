@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 
 from ..models import ParseResult
+from ..utils.fx import get_fx
 from ..utils.strings import contains_any, safe_str
 from .base_parser import (
     detect_header_row,
@@ -130,4 +131,31 @@ def parse_pesos(file_path: str, fecha: date) -> ParseResult:
 def parse_usd(file_path: str, fecha: date) -> ParseResult:
     res = _parse(file_path, fecha, "SAN CRISTOBAL USD")
     res.parser_name = "san_cristobal_usd"
+
+    # Manual: la cuenta USD hay que llevarla a pesos.
+    tc = get_fx("SAN CRISTOBAL")
+    fname = Path(file_path).name
+    if tc is None:
+        original = list(res.records)
+        res.records = []
+        for rec in original:
+            reject(
+                res,
+                fname,
+                "USD sin TC configurado (definir SAN_CRISTOBAL_USD_TC o config/fx.json)",
+                source_sheet=rec.source_sheet,
+                source_row=rec.source_row,
+                compania=rec.compania,
+                raw=rec.to_dict(),
+            )
+        return res
+
+    log.info("SAN CRISTOBAL USD TC aplicado: %s", tc)
+    for rec in res.records:
+        if rec.comisiones is not None:
+            rec.comisiones = round(rec.comisiones * tc, 2)
+        if rec.prima is not None:
+            rec.prima = round(rec.prima * tc, 2)
+        if rec.premio is not None:
+            rec.premio = round(rec.premio * tc, 2)
     return res

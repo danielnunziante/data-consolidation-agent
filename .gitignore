@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+
+# Config de tipos de cambio: se genera/edita desde la GUI por ejecución.
+config/fx.json
+
+# Manual del cliente extraído como texto para Read tools.
+_manual.txt

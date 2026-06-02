@@ -20,19 +20,10 @@ from .base_parser import (
 COMPANY = "ZURICH"
 
 
-def _truncate_poliza_zurich(value) -> str:
-    """Manual: primeros 6 dígitos de derecha a izquierda, salvo que el 6to
-    dígito por derecha sea '0' (en cuyo caso solo 5)."""
+def _extract_poliza_zurich(value) -> str:
     s = safe_str(value)
     digits = "".join(c for c in s if c.isdigit())
-    if not digits:
-        return s
-    if len(digits) <= 5:
-        return digits
-    last6 = digits[-6:]
-    if last6[0] == "0":
-        return last6[1:]
-    return last6
+    return digits if digits else s
 
 
 def parse(file_path: str, fecha: date) -> ParseResult:
@@ -66,7 +57,7 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         poliza_raw = safe_str(row[c_pol])
         if not poliza_raw or poliza_raw == "0":
             continue
-        poliza = _truncate_poliza_zurich(poliza_raw)
+        poliza = _extract_poliza_zurich(poliza_raw)
         com_v = to_float(row[c_com])
         prima_v = to_float(row[c_prima])
         comisiones = abs(com_v) if com_v is not None else None

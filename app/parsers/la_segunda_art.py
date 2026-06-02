@@ -64,10 +64,12 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         poliza = safe_str(values[idx_cont])
         if not poliza or not re.search(r"\d", poliza):
             continue
-        # Si viene mezclado "123 RAZON SOCIAL", separamos
+        # Si viene mezclado "123 RAZON SOCIAL" en la columna de contrato, siempre separar.
+        # En algunos archivos la columna adyacente (idx_razon) puede contener una fecha
+        # en lugar del nombre, por lo que no se puede condicionar al valor de asegurado.
         asegurado = safe_str(values[idx_razon]) if idx_razon is not None else ""
         m = re.match(r"^\s*(\d+)\s+(.+)$", poliza)
-        if m and not asegurado:
+        if m:
             poliza, asegurado = m.group(1), m.group(2)
 
         com_v = to_float(values[idx_com])

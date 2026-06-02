@@ -70,11 +70,6 @@ def parse(file_path: str, fecha: date) -> ParseResult:
 
     fname = Path(file_path).name
     for idx, row in df.iterrows():
-        grupo = normalize(row[c_grupo]) if c_grupo else ""
-        # excluir comisiones adicionales (no PR "básicas" o "colectivo")
-        if grupo and "ADICIONAL" in grupo:
-            continue
-
         seccion, poliza = _split_poliza(row[c_pol])
         if not poliza:
             continue

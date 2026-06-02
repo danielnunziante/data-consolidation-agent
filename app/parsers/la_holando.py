@@ -88,7 +88,7 @@ def parse(file_path: str, fecha: date) -> ParseResult:
             seccion = "A.R.T."
         else:
             compania = "LA HOLANDO GENERALES"
-            seccion = safe_str(row[c_tipo_op]) if c_tipo_op else safe_str(row[c_rama])
+            seccion = safe_str(row[c_det]) if c_det else safe_str(row[c_rama])
 
         try:
             rec = make_record(

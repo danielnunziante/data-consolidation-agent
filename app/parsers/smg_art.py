@@ -108,9 +108,11 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         # Si ninguna tiene datos asumimos Prod (default histórico)
         return org_hits > prod_hits
 
+    # bloque 1 → PR; bloque 2 → IND (sólo pólizas no vistas en bloque 1)
     bloques_aceptados = 0
     bloque_activo = False
     usar_org = False
+    polizas_pr: set = set()
 
     for i in range(header_row + 1, n_rows):
         row = df.iloc[i].tolist()
@@ -149,6 +151,16 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         else:
             comis = to_float(row[c_com_prod]) if c_com_prod is not None and c_com_prod < len(row) else None
 
+        if bloques_aceptados == 1:
+            tipo = "PR"
+            polizas_pr.add(contrato)
+        else:
+            # Bloque 2 es el productor organizador (IND). Excluir pólizas que
+            # ya aparecieron en el bloque PR para evitar duplicados.
+            if contrato in polizas_pr:
+                continue
+            tipo = "IND"
+
         try:
             rec = make_record(
                 fecha=fecha,
@@ -156,7 +168,7 @@ def parse(file_path: str, fecha: date) -> ParseResult:
                 asegurado=cliente,
                 seccion=SECCION,
                 compania=COMPANY,
-                tipo="PR",
+                tipo=tipo,
                 comisiones=comis,
                 prima=importe_v,
                 premio=importe_v,

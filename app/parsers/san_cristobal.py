@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ..models import ParseResult
 from ..utils.fx import get_fx
+from ..utils.numbers import to_float
 from ..utils.strings import contains_any, safe_str
 from .base_parser import (
     detect_header_row,
@@ -102,6 +103,9 @@ def _parse_sheet(
                 source_sheet=sheet_name,
                 source_row=idx + header_row + 2,
             )
+            # Cuando la prima es negativa (devolución), el premio debe serlo también
+            if rec.prima is not None and rec.premio is not None and rec.prima < 0 and rec.premio > 0:
+                rec.premio = -rec.premio
             result.records.append(rec)
         except Exception as exc:
             log.warning("%s %s fila %s: %s", company_name, sheet_name, idx, exc)

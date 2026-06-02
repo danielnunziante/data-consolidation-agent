@@ -129,26 +129,27 @@ def parse(file_path: str, fecha: date) -> ParseResult:
                 except Exception as exc:
                     log.warning("SANCOR 213871 PR fila %s: %s", idx, exc)
                     reject(result, fname, f"Error PR: {exc}", source_sheet=sheet_name, source_row=source_row, raw=row.to_dict())
-                # fila AY si Adic Cobranza != 0
-                adic_cob = to_float(row[c_adic_cob]) if c_adic_cob else 0.0
-                if adic_cob and adic_cob != 0:
-                    try:
-                        rec_ay = make_record(
-                            fecha=fecha,
-                            poliza=poliza,
-                            asegurado=aseg,
-                            seccion=ramo,
-                            compania=COMPANY,
-                            tipo="AY",
-                            comisiones=adic_cob,
-                            prima=None,
-                            premio=None,
-                            source_file=fname,
-                            source_sheet=sheet_name,
-                            source_row=source_row,
-                        )
-                        result.records.append(rec_ay)
-                    except Exception as exc:
-                        log.warning("SANCOR 213871 AY fila %s: %s", idx, exc)
-                        reject(result, fname, f"Error AY: {exc}", source_sheet=sheet_name, source_row=source_row, raw=row.to_dict())
+                # fila AY si la columna Adic Cobranza existe (incluir aunque sea 0)
+                if c_adic_cob:
+                    adic_cob = to_float(row[c_adic_cob])
+                    if adic_cob is not None:
+                        try:
+                            rec_ay = make_record(
+                                fecha=fecha,
+                                poliza=poliza,
+                                asegurado=aseg,
+                                seccion=ramo,
+                                compania=COMPANY,
+                                tipo="AY",
+                                comisiones=adic_cob,
+                                prima=None,
+                                premio=None,
+                                source_file=fname,
+                                source_sheet=sheet_name,
+                                source_row=source_row,
+                            )
+                            result.records.append(rec_ay)
+                        except Exception as exc:
+                            log.warning("SANCOR 213871 AY fila %s: %s", idx, exc)
+                            reject(result, fname, f"Error AY: {exc}", source_sheet=sheet_name, source_row=source_row, raw=row.to_dict())
     return result

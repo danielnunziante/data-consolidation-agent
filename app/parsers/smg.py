@@ -49,34 +49,24 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         reject(result, Path(file_path).name, f"Columnas insuficientes: {columns}", source_sheet=sheet_name)
         return result
 
-    # Dedup USD: para Cod_moneda == 1 el archivo trae dos líneas por movimiento
-    # (la primera en USD, la segunda en pesos). Conservamos la fila NO USD.
-    # Agrupamos por (Nro_pol, Endoso si existe, F_emision si existe). Si dentro
-    # del grupo hay una fila con Cod_moneda == 1 y otra distinta, descartamos
-    # la flag-USD.
+    # Dedup USD: cuando Cod_moneda == 1 (USD) existe una fila duplicada en pesos
+    # para la misma póliza. Descartamos TODAS las filas USD de pólizas que también
+    # tengan al menos una fila en pesos (Cod_moneda != 1).
     drop_indices: set = set()
     if c_moneda is not None:
-        def _key_for(r) -> tuple:
-            key = [safe_str(r[c_pol])]
-            if c_endoso is not None:
-                key.append(safe_str(r[c_endoso]))
-            if c_femision is not None:
-                key.append(safe_str(r[c_femision]))
-            return tuple(key)
+        def _pol_key(r) -> str:
+            return safe_str(r[c_pol])
 
-        groups: dict[tuple, list[int]] = {}
+        polizas_con_pesos: set = set()
         for idx, row in df.iterrows():
             mon_v = to_float(row[c_moneda])
             if mon_v != 1:
-                continue
-            groups.setdefault(_key_for(row), []).append(idx)
+                polizas_con_pesos.add(_pol_key(row))
 
-        for _, idxs in groups.items():
-            if len(idxs) >= 2:
-                # Si hay 2 filas marcadas USD para la misma clave, asumimos
-                # que la primera es la duplicada en USD y la segunda es la
-                # versión en pesos (que SMG marca igual pero ya convertida).
-                drop_indices.add(idxs[0])
+        for idx, row in df.iterrows():
+            mon_v = to_float(row[c_moneda])
+            if mon_v == 1 and _pol_key(row) in polizas_con_pesos:
+                drop_indices.add(idx)
 
     fname = Path(file_path).name
     for idx, row in df.iterrows():

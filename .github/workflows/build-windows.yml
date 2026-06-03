@@ -24,9 +24,13 @@ jobs:
       - name: Construir ejecutable
         run: pyinstaller ConsolidadorCCTT.spec
 
+      - name: Empaquetar carpeta como ZIP
+        run: Compress-Archive -Path dist\ConsolidadorCCTT -DestinationPath dist\ConsolidadorCCTT-Windows.zip
+        shell: pwsh
+
       - name: Subir ejecutable como artefacto
         uses: actions/upload-artifact@v4
         with:
           name: ConsolidadorCCTT-Windows
-          path: dist/ConsolidadorCCTT.exe
+          path: dist/ConsolidadorCCTT-Windows.zip
           retention-days: 30

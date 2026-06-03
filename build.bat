@@ -23,21 +23,9 @@ if errorlevel 1 (
 echo [2/3] Limpiando build anterior...
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
-if exist ConsolidadorCCTT.spec del /q ConsolidadorCCTT.spec
 
 echo [3/3] Ejecutando PyInstaller...
-python -m PyInstaller ^
-    --noconfirm ^
-    --onefile ^
-    --windowed ^
-    --name ConsolidadorCCTT ^
-    --collect-submodules app ^
-    --collect-all customtkinter ^
-    --collect-submodules pdfplumber ^
-    --collect-submodules pdfminer ^
-    --collect-submodules openpyxl ^
-    --collect-submodules pandas ^
-    app\main.py
+python -m PyInstaller --noconfirm ConsolidadorCCTT.spec
 
 if errorlevel 1 (
     echo [ERROR] PyInstaller fallo.
@@ -45,5 +33,6 @@ if errorlevel 1 (
 )
 
 echo.
-echo === OK === ejecutable disponible en dist\ConsolidadorCCTT.exe
+echo === OK === carpeta disponible en dist\ConsolidadorCCTT\
+echo            Comprimir y entregar la carpeta completa al cliente.
 endlocal

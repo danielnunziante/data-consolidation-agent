@@ -21,9 +21,23 @@ COMPANY = "ZURICH"
 
 
 def _extract_poliza_zurich(value) -> str:
+    """Trunca el número de póliza como lo hace el cliente.
+
+    El número viene con el código de sección como prefijo. Regla validada
+    contra la consolidación manual de ABRIL 2026 (79/79 filas):
+    - 8 dígitos que empiezan con "9" (autos serie 9xxxxxxx): quitar 1 dígito.
+    - resto: quitar los 2 primeros dígitos y los ceros a la izquierda
+      (cubre series 50/70/82/26xx/8000xxx/9000xxx).
+    """
     s = safe_str(value)
     digits = "".join(c for c in s if c.isdigit())
-    return digits if digits else s
+    if not digits:
+        return s
+    if len(digits) == 8 and digits.startswith("9"):
+        return digits[1:]
+    if len(digits) > 2:
+        return digits[2:].lstrip("0") or "0"
+    return digits
 
 
 def parse(file_path: str, fecha: date) -> ParseResult:
@@ -60,9 +74,10 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         poliza = _extract_poliza_zurich(poliza_raw)
         com_v = to_float(row[c_com])
         prima_v = to_float(row[c_prima])
-        comisiones = abs(com_v) if com_v is not None else None
-        prima_abs = abs(prima_v) if prima_v is not None else None
-        premio = prima_abs * 1.40 if prima_abs is not None else None
+        # Manual: prima y comisión vienen con signo contrario -> se invierten.
+        comisiones = -com_v if com_v is not None else None
+        prima_out = -prima_v if prima_v is not None else None
+        premio = round(prima_out * 1.40, 2) if prima_out is not None else None
         try:
             rec = make_record(
                 fecha=fecha,
@@ -72,7 +87,7 @@ def parse(file_path: str, fecha: date) -> ParseResult:
                 compania=COMPANY,
                 tipo="PR",
                 comisiones=comisiones,
-                prima=prima_abs,
+                prima=prima_out,
                 premio=premio,
                 source_file=fname,
                 source_sheet=sheet_name,

@@ -1,8 +1,8 @@
-"""Parser de SMG ART - múltiples bloques en una misma hoja.
+"""Parser de SMG ART - múltiples bloques "Productor: ..." en una misma hoja.
 
-Sólo procesamos los dos primeros bloques encabezados por:
-  - Productor: COBERTURAS y SERVICIOS S.A [xxxxx]
-  - Productor: COBERTURAS y SERVICIOS S.A/B [xxxxx]
+- Bloques de COBERTURAS (S.A y SA/B) -> PR (cartera propia).
+- Bloques de productores terceros -> IND sólo cuando hay comisión de
+  organizador (Com.Org != 0); el resto se descarta.
 """
 from __future__ import annotations
 
@@ -78,58 +78,26 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         reject(result, fname, f"Columnas insuficientes: {header_cells}", source_sheet=sheet_name)
         return result
 
-    # 2) Escanear filas detectando bloques por líneas "Productor: COBERTURAS..."
-    # Aceptamos los dos primeros bloques. Para cada bloque determinamos si la
-    # comisión efectiva está en Com.Org o Com.Prod mirando qué columna tiene
-    # valores no-cero en las primeras filas del bloque (no por orden de bloque).
-    BLOCK_PEEK = 10  # filas a inspeccionar antes de decidir la columna
-
-    def _decide_usar_org(start: int) -> bool:
-        org_hits = prod_hits = 0
-        seen = 0
-        for j in range(start, min(start + 60, n_rows)):
-            row_j = df.iloc[j].tolist()
-            raw_j = normalize(" ".join(safe_str(v) for v in row_j))
-            if "PRODUCTOR:" in raw_j and "COBERTURAS" in raw_j:
-                break
-            cli = safe_str(row_j[c_cliente]) if c_cliente < len(row_j) else ""
-            con = safe_str(row_j[c_contrato]) if c_contrato < len(row_j) else ""
-            if not con or normalize(cli).startswith("CLIENTE"):
-                continue
-            org_v = to_float(row_j[c_com_org]) if c_com_org is not None and c_com_org < len(row_j) else None
-            prod_v = to_float(row_j[c_com_prod]) if c_com_prod is not None and c_com_prod < len(row_j) else None
-            if org_v not in (None, 0):
-                org_hits += 1
-            if prod_v not in (None, 0):
-                prod_hits += 1
-            seen += 1
-            if seen >= BLOCK_PEEK:
-                break
-        # Si ninguna tiene datos asumimos Prod (default histórico)
-        return org_hits > prod_hits
-
-    # bloque 1 → PR; bloque 2 → IND (sólo pólizas no vistas en bloque 1)
-    bloques_aceptados = 0
+    # 2) Escanear filas detectando bloques por líneas "Productor: ...".
+    # Reglas (validadas contra la consolidación manual de ABRIL 2026):
+    #   - Bloques cuyo productor es COBERTURAS (S.A o SA/B) -> TIPO=PR.
+    #     COMISIONES = Com.Org si es != 0, si no Com.Prod (en el bloque del
+    #     organizador la comisión viene en Com.Org; en el SA/B en Com.Prod).
+    #     PRIMA = PREMIO = Importe(3). Se conservan filas con comisión 0.
+    #   - Bloques de otros productores (terceros) -> el bróker sólo cobra la
+    #     comisión de organizador: si Com.Org != 0 la fila va como IND (sólo
+    #     comisiones); si Com.Org == 0 la fila se descarta.
+    bloque_coberturas = False
     bloque_activo = False
-    usar_org = False
-    polizas_pr: set = set()
 
     for i in range(header_row + 1, n_rows):
         row = df.iloc[i].tolist()
         raw_str = " ".join(safe_str(v) for v in row)
         norm = normalize(raw_str)
-        if "PRODUCTOR:" in norm and "COBERTURAS" in norm:
-            bloques_aceptados += 1
-            if bloques_aceptados > 2:
-                break
+        if "PRODUCTOR:" in norm:
             bloque_activo = True
-            usar_org = _decide_usar_org(i + 1)
-            log.debug(
-                "SMG ART bloque %s: usar_org=%s (header=%r)",
-                bloques_aceptados,
-                usar_org,
-                raw_str.strip()[:80],
-            )
+            bloque_coberturas = "COBERTURAS" in norm
+            log.debug("SMG ART bloque: %r (coberturas=%s)", raw_str.strip()[:80], bloque_coberturas)
             continue
 
         if not bloque_activo:
@@ -141,25 +109,26 @@ def parse(file_path: str, fecha: date) -> ParseResult:
 
         if not cliente and not contrato:
             continue
-        if not contrato or not importe_v:
+        if not contrato or importe_v is None:
             continue
-        if normalize(cliente).startswith("CLIENTE"):
+        if normalize(cliente).startswith(("CLIENTE", "TOTALES")):
             continue
 
-        if usar_org:
-            comis = to_float(row[c_com_org]) if c_com_org is not None and c_com_org < len(row) else None
-        else:
-            comis = to_float(row[c_com_prod]) if c_com_prod is not None and c_com_prod < len(row) else None
+        org_v = to_float(row[c_com_org]) if c_com_org is not None and c_com_org < len(row) else None
+        prod_v = to_float(row[c_com_prod]) if c_com_prod is not None and c_com_prod < len(row) else None
 
-        if bloques_aceptados == 1:
+        if bloque_coberturas:
             tipo = "PR"
-            polizas_pr.add(contrato)
+            comis = org_v if org_v not in (None, 0) else prod_v
+            prima_out = importe_v
+            premio_out = importe_v
         else:
-            # Bloque 2 es el productor organizador (IND). Excluir pólizas que
-            # ya aparecieron en el bloque PR para evitar duplicados.
-            if contrato in polizas_pr:
+            if org_v in (None, 0):
                 continue
             tipo = "IND"
+            comis = org_v
+            prima_out = None
+            premio_out = None
 
         try:
             rec = make_record(
@@ -170,8 +139,8 @@ def parse(file_path: str, fecha: date) -> ParseResult:
                 compania=COMPANY,
                 tipo=tipo,
                 comisiones=comis,
-                prima=importe_v,
-                premio=importe_v,
+                prima=prima_out,
+                premio=premio_out,
                 source_file=fname,
                 source_sheet=sheet_name,
                 source_row=i + 1,

@@ -2,6 +2,12 @@ __pycache__/
 *.pyc
 *.pyo
 
+# macOS metadata
+.DS_Store
+
+# Datos de ejemplo del cliente (Excel/PDF confidenciales, no van al repo)
+Ejemplos Data/
+
 # Config de tipos de cambio: se genera/edita desde la GUI por ejecución.
 config/fx.json
 

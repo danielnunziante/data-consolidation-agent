@@ -1,14 +1,14 @@
-"""GUI Coberser — diseño simple, responsivo, con scroll global confiable.
+"""GUI Coberser — layout de dos paneles: configuración (izquierda) y
+resultados/actividad (derecha).
 
-Reglas estrictas para evitar los bugs históricos:
-- `CTkScrollableFrame` como contenedor único para todo el contenido scrolleable.
-- Los hijos directos del scroll usan SIEMPRE `pack(fill=X)`. Nunca se setea
-  `width=` en píxeles a un widget hijo (el `CTkScrollableFrame` ya sincroniza
-  el ancho interno con su viewport).
-- Dentro de cada tarjeta se usa `grid` con `columnconfigure(weight=1)` para
+Reglas estrictas para evitar los bugs históricos de layout:
+- Todo contenido scrolleable vive en un `CTkScrollableFrame`; sus hijos
+  directos usan SIEMPRE `pack(fill=X)` y nunca reciben `width=` en píxeles
+  (el frame ya sincroniza el ancho interno con su viewport).
+- Dentro de cada bloque se usa `grid` con `columnconfigure(weight=1)` para
   que los inputs se estiren y los botones queden fijos.
-- `wraplength` siempre estático (cabe holgado en el `minsize`); nunca dinámico
-  (eso producía un loop de `<Configure>` y "No responde").
+- `wraplength` siempre estático (dimensionado para el ancho mínimo); nunca
+  dinámico (eso producía un loop de `<Configure>` y "No responde").
 - Sin cálculos manuales de píxeles, sin `winfo_width`, sin `after` de layout.
 """
 from __future__ import annotations
@@ -36,6 +36,7 @@ from tkinter import (
 from .config import RunParams
 from .controller import ConsolidationController
 from .models import RunSummary
+from .utils.files import detect_parser, list_input_files
 from .utils.fx import FX_COMPANIES, read_fx_config, write_fx_config
 
 
@@ -44,46 +45,53 @@ PERIOD_RE = re.compile(r"^\d{4}-\d{2}$")
 # ------------------------------------------------------------------
 # Paleta y tipografías
 # ------------------------------------------------------------------
-APP_BG = "#0f1117"
-SURFACE = "#171923"
-SURFACE_MUTED = "#12151c"
-INPUT_BG = "#1c212c"
-INPUT_FOCUS = "#232836"
-BORDER_SUBTLE = "#2d3344"
-BORDER_STRONG = "#3d4659"
+APP_BG = "#0b0e14"
+SIDEBAR_BG = "#11141d"
+SURFACE = "#161a26"
+SURFACE_MUTED = "#10131b"
+INPUT_BG = "#1b202d"
+INPUT_FOCUS = "#222838"
+BORDER_SUBTLE = "#262d3d"
+BORDER_STRONG = "#3a4257"
 ACCENT = "#3b82f6"
 ACCENT_HOVER = "#2563eb"
 ACCENT_PRESS = "#1d4ed8"
+ACCENT_SOFT = "#162540"
 SUCCESS = "#22c55e"
+SUCCESS_SOFT = "#10241a"
 WARNING = "#f59e0b"
+WARNING_SOFT = "#2a2110"
 ERROR = "#ef4444"
+ERROR_SOFT = "#2a1414"
 TEXT_PRIMARY = "#e8eaed"
 TEXT_SECONDARY = "#94a3b8"
 TEXT_MUTED = "#64748b"
 
-FONT_DISPLAY = ("Segoe UI Semibold", 22)
+FONT_DISPLAY = ("Segoe UI Semibold", 17)
 FONT_H2 = ("Segoe UI Semibold", 13)
+FONT_KPI = ("Segoe UI Semibold", 24)
 FONT_BODY = ("Segoe UI", 12)
 FONT_BODY_SM = ("Segoe UI", 11)
 FONT_LABEL = ("Segoe UI", 11)
-FONT_OVERLINE = ("Segoe UI", 10)
+FONT_OVERLINE = ("Segoe UI Semibold", 10)
 FONT_BTN = ("Segoe UI", 13, "bold")
 FONT_BTN_SECONDARY = ("Segoe UI", 12)
 FONT_LOG = ("Consolas", 11)
 FONT_HINT = ("Segoe UI", 10)
+FONT_MONO_SM = ("Consolas", 12)
 
-PAD_X = 24       # padding lateral de las tarjetas
-PAD_INNER = 20   # padding interno de cada tarjeta
-WRAP_TEXT = 720  # estático: cabe en minsize=820 menos padding
-LOG_HEIGHT = 260 # alto fijo del visor de log
+SIDEBAR_W = 372       # ancho fijo del panel izquierdo
+PAD = 18              # padding genérico
+WRAP_SIDE = 300       # wraplength estático para textos del sidebar
+WRAP_MAIN = 470       # wraplength estático para textos del panel derecho
 
 
 class ConsolidatorApp:
     def __init__(self, root: ctk.CTk) -> None:
         self.root = root
         root.title("Coberser · Consolidador de cuentas corrientes")
-        root.geometry("960x700")
-        root.minsize(820, 600)
+        root.geometry("1120x720")
+        root.minsize(960, 620)
         root.configure(fg_color=APP_BG)
 
         self._log_queue: queue.Queue[str] = queue.Queue()
@@ -94,14 +102,18 @@ class ConsolidatorApp:
         self._status_mode = "idle"
         self._dot_id: int | None = None
 
+        # Período por defecto: el mes ANTERIOR (la consolidación de un mes se
+        # hace los primeros días del mes siguiente).
         today = date.today()
-        default_period = f"{today.year:04d}-{today.month:02d}"
+        prev_y, prev_m = (today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)
+        default_period = f"{prev_y:04d}-{prev_m:02d}"
 
         self.var_input = StringVar()
         self.var_output = StringVar()
         self.var_period = StringVar(value=default_period)
         self.var_status = StringVar(value="Listo para procesar")
         self.var_progress_label = StringVar(value="")
+        self.var_input_stats = StringVar(value="")
 
         # Tipos de cambio USD: una StringVar por compañía, pre-llenadas con
         # el último valor persistido en config/fx.json.
@@ -125,362 +137,469 @@ class ConsolidatorApp:
     # ------------------------------------------------------------------
     # Helpers de estilo
     # ------------------------------------------------------------------
-    def _card(self, parent) -> ctk.CTkFrame:
-        return ctk.CTkFrame(
-            parent,
-            fg_color=SURFACE,
-            corner_radius=14,
-            border_width=1,
-            border_color=BORDER_SUBTLE,
-        )
-
     def _entry(self, parent, variable: StringVar | None = None) -> ctk.CTkEntry:
         e = ctk.CTkEntry(
             parent,
             textvariable=variable,
-            height=40,
+            height=38,
             font=FONT_BODY,
             fg_color=INPUT_BG,
             text_color=TEXT_PRIMARY,
             placeholder_text_color=TEXT_MUTED,
             border_width=1,
             border_color=BORDER_SUBTLE,
-            corner_radius=10,
+            corner_radius=9,
         )
         e.bind("<FocusIn>", lambda _e: e.configure(fg_color=INPUT_FOCUS, border_color=ACCENT))
         e.bind("<FocusOut>", lambda _e: e.configure(fg_color=INPUT_BG, border_color=BORDER_SUBTLE))
         return e
 
-    def _btn_primary(self, parent, text: str, command) -> ctk.CTkButton:
-        return ctk.CTkButton(
-            parent,
-            text=text,
-            command=command,
-            fg_color=ACCENT,
-            hover_color=ACCENT_HOVER,
-            text_color="#ffffff",
-            height=42,
-            width=160,
-            font=FONT_BTN,
-            corner_radius=22,
-        )
-
-    def _btn_secondary(self, parent, text: str, command, *, width: int = 160) -> ctk.CTkButton:
+    def _btn_secondary(self, parent, text: str, command, *, width: int = 96) -> ctk.CTkButton:
         return ctk.CTkButton(
             parent,
             text=text,
             command=command,
             width=width,
-            height=40,
+            height=38,
             font=FONT_BTN_SECONDARY,
             fg_color="transparent",
             hover_color=SURFACE_MUTED,
-            text_color=TEXT_PRIMARY,
+            text_color=TEXT_SECONDARY,
             border_width=1,
             border_color=BORDER_STRONG,
-            corner_radius=10,
+            corner_radius=9,
+        )
+
+    def _overline(self, parent, text: str) -> ctk.CTkLabel:
+        return ctk.CTkLabel(
+            parent, text=text, font=FONT_OVERLINE, text_color=TEXT_MUTED, anchor="w"
         )
 
     # ------------------------------------------------------------------
     # Construcción del layout
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
-        # Franja de acento arriba (fija)
-        accent_strip = ctk.CTkFrame(self.root, fg_color=ACCENT, corner_radius=0, height=3)
-        accent_strip.pack(fill=X, side="top")
-        accent_strip.pack_propagate(False)
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=0)
+        self.root.grid_columnconfigure(1, weight=1)
 
-        # Contenedor scrolleable principal — único responsable del scroll global.
+        self._build_sidebar()
+        self._build_main()
+
+    # ---------- Panel izquierdo: configuración ----------
+    def _build_sidebar(self) -> None:
+        side = ctk.CTkFrame(self.root, fg_color=SIDEBAR_BG, corner_radius=0, width=SIDEBAR_W)
+        side.grid(row=0, column=0, sticky="nsw")
+        side.grid_propagate(False)
+        side.pack_propagate(False)
+
+        # Footer fijo (botón Procesar) — se packea primero para reservar lugar.
+        footer = ctk.CTkFrame(side, fg_color=SIDEBAR_BG, corner_radius=0)
+        footer.pack(side="bottom", fill=X)
+
+        sep = ctk.CTkFrame(footer, fg_color=BORDER_SUBTLE, height=1, corner_radius=0)
+        sep.pack(fill=X)
+
+        footer_in = ctk.CTkFrame(footer, fg_color="transparent")
+        footer_in.pack(fill=X, padx=PAD, pady=(14, 12))
+
+        self.btn_run = ctk.CTkButton(
+            footer_in,
+            text="Procesar",
+            command=self._run,
+            fg_color=ACCENT,
+            hover_color=ACCENT_HOVER,
+            text_color="#ffffff",
+            height=44,
+            font=FONT_BTN,
+            corner_radius=10,
+        )
+        self.btn_run.pack(fill=X)
+
+        ctk.CTkLabel(
+            footer_in,
+            text="Atajo: Ctrl+Enter o F5",
+            font=FONT_HINT,
+            text_color=TEXT_MUTED,
+            anchor="center",
+        ).pack(fill=X, pady=(8, 0))
+
+        # Contenido scrolleable del sidebar.
         scroll = ctk.CTkScrollableFrame(
-            self.root,
-            fg_color=APP_BG,
+            side,
+            fg_color="transparent",
             corner_radius=0,
             border_width=0,
-            scrollbar_fg_color=BORDER_SUBTLE,
-            scrollbar_button_color=TEXT_MUTED,
-            scrollbar_button_hover_color=TEXT_SECONDARY,
+            scrollbar_fg_color=SIDEBAR_BG,
+            scrollbar_button_color=BORDER_STRONG,
+            scrollbar_button_hover_color=TEXT_MUTED,
         )
-        scroll.pack(fill=BOTH, expand=True, side="top")
-        self.scroll = scroll
+        scroll.pack(fill=BOTH, expand=True)
 
-        self._build_header(scroll)
-        self._build_form_card(scroll)
-        self._build_fx_card(scroll)
-        self._build_action_card(scroll)
-        self._build_log_card(scroll)
+        # ---- Marca ----
+        brand = ctk.CTkFrame(scroll, fg_color="transparent")
+        brand.pack(fill=X, padx=PAD, pady=(18, 4))
+        brand.grid_columnconfigure(1, weight=1)
 
-    # ---------- Header ----------
-    def _build_header(self, parent) -> None:
-        header = ctk.CTkFrame(parent, fg_color="transparent")
-        header.pack(fill=X, padx=PAD_X, pady=(18, 6))
+        logo = ctk.CTkFrame(brand, fg_color=ACCENT, corner_radius=8, width=34, height=34)
+        logo.grid(row=0, column=0, rowspan=2, sticky="w")
+        logo.grid_propagate(False)
+        ctk.CTkLabel(
+            logo, text="C", font=("Segoe UI Black", 16), text_color="#ffffff"
+        ).place(relx=0.5, rely=0.5, anchor="center")
 
         ctk.CTkLabel(
-            header,
-            text="Coberser",
-            font=FONT_DISPLAY,
-            text_color=TEXT_PRIMARY,
-            anchor="w",
-        ).pack(anchor="w", fill=X)
-
-        badge = ctk.CTkFrame(header, fg_color=SURFACE, corner_radius=6)
-        badge.pack(anchor="w", pady=(6, 0))
+            brand, text="Coberser", font=FONT_DISPLAY, text_color=TEXT_PRIMARY, anchor="w"
+        ).grid(row=0, column=1, sticky="ew", padx=(12, 0))
         ctk.CTkLabel(
-            badge,
-            text="  Consolidador de cuentas corrientes  ",
+            brand,
+            text="Consolidador de cuentas corrientes",
             font=FONT_HINT,
             text_color=TEXT_MUTED,
-        ).pack(padx=8, pady=4)
+            anchor="w",
+        ).grid(row=1, column=1, sticky="ew", padx=(12, 0))
 
-        ctk.CTkLabel(
-            header,
-            text=(
-                "Seleccioná la carpeta con los archivos de cada aseguradora, definí el Excel "
-                "de salida y el período. Al procesar se generará un libro único según las "
-                "reglas de cada empresa."
-            ),
-            font=FONT_BODY,
-            text_color=TEXT_SECONDARY,
+        # ---- 1 · Carpeta de origen ----
+        sec1 = ctk.CTkFrame(scroll, fg_color="transparent")
+        sec1.pack(fill=X, padx=PAD, pady=(20, 0))
+        sec1.grid_columnconfigure(0, weight=1)
+
+        self._overline(sec1, "1 · CARPETA DE ORIGEN").grid(row=0, column=0, columnspan=2, sticky="ew")
+
+        self.ent_input = self._entry(sec1, self.var_input)
+        self.ent_input.grid(row=1, column=0, sticky="ew", pady=(8, 0), padx=(0, 8))
+        self.ent_input.bind("<FocusOut>", lambda _e: self._refresh_input_stats(), add="+")
+        self._pick_in_btn = self._btn_secondary(sec1, "Elegir…", self._pick_input)
+        self._pick_in_btn.grid(row=1, column=1, sticky="e", pady=(8, 0))
+
+        self.lbl_input_stats = ctk.CTkLabel(
+            sec1,
+            textvariable=self.var_input_stats,
+            font=FONT_HINT,
+            text_color=TEXT_MUTED,
+            anchor="w",
             justify="left",
-            anchor="w",
-            wraplength=WRAP_TEXT,
-        ).pack(anchor="w", fill=X, pady=(10, 0))
+            wraplength=WRAP_SIDE,
+        )
+        self.lbl_input_stats.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        self.var_input_stats.set("Carpeta con los archivos de cada aseguradora (Excel/PDF).")
 
-    # ---------- Tarjeta de configuración ----------
-    def _build_form_card(self, parent) -> None:
-        card = self._card(parent)
-        card.pack(fill=X, padx=PAD_X, pady=(10, 8))
+        # ---- 2 · Excel de salida ----
+        sec2 = ctk.CTkFrame(scroll, fg_color="transparent")
+        sec2.pack(fill=X, padx=PAD, pady=(18, 0))
+        sec2.grid_columnconfigure(0, weight=1)
 
-        inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill=X, padx=PAD_INNER, pady=PAD_INNER)
-        inner.grid_columnconfigure(0, weight=1)
+        self._overline(sec2, "2 · EXCEL DE SALIDA").grid(row=0, column=0, columnspan=2, sticky="ew")
+
+        self.ent_output = self._entry(sec2, self.var_output)
+        self.ent_output.grid(row=1, column=0, sticky="ew", pady=(8, 0), padx=(0, 8))
+        self._pick_out_btn = self._btn_secondary(sec2, "Guardar…", self._pick_output)
+        self._pick_out_btn.grid(row=1, column=1, sticky="e", pady=(8, 0))
 
         ctk.CTkLabel(
-            inner,
-            text="CONFIGURACIÓN DEL PROCESO",
-            font=FONT_OVERLINE,
+            sec2,
+            text="El log y las filas rechazadas se guardan en la misma carpeta.",
+            font=FONT_HINT,
             text_color=TEXT_MUTED,
             anchor="w",
-        ).grid(row=0, column=0, sticky="ew", pady=(0, 12))
+            justify="left",
+            wraplength=WRAP_SIDE,
+        ).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
 
-        # ---- 1. Carpeta de origen ----
+        # ---- 3 · Período ----
+        sec3 = ctk.CTkFrame(scroll, fg_color="transparent")
+        sec3.pack(fill=X, padx=PAD, pady=(18, 0))
+        sec3.grid_columnconfigure(1, weight=1)
+
+        self._overline(sec3, "3 · PERÍODO CONTABLE").grid(row=0, column=0, columnspan=2, sticky="ew")
+
+        self.ent_period = self._entry(sec3, self.var_period)
+        self.ent_period.configure(width=110, justify="center", font=FONT_MONO_SM)
+        self.ent_period.grid(row=1, column=0, sticky="w", pady=(8, 0))
         ctk.CTkLabel(
-            inner, text="1 · Carpeta de origen",
-            font=FONT_LABEL, text_color=TEXT_SECONDARY, anchor="w",
-        ).grid(row=1, column=0, sticky="ew", pady=(0, 6))
-
-        row_in = ctk.CTkFrame(inner, fg_color="transparent")
-        row_in.grid(row=2, column=0, sticky="ew")
-        row_in.grid_columnconfigure(0, weight=1)
-        self.ent_input = self._entry(row_in, self.var_input)
-        self.ent_input.grid(row=0, column=0, sticky="ew", padx=(0, 12))
-        self._pick_in_btn = self._btn_secondary(
-            row_in, "Seleccionar carpeta…", self._pick_input, width=180
-        )
-        self._pick_in_btn.grid(row=0, column=1, sticky="e")
-
-        ctk.CTkLabel(
-            inner,
-            text="Debe contener Excel/PDF/HTML según cada compañía.",
-            font=FONT_HINT, text_color=TEXT_MUTED, anchor="w",
-        ).grid(row=3, column=0, sticky="ew", pady=(6, 0))
-
-        # ---- 2. Excel de salida ----
-        ctk.CTkLabel(
-            inner, text="2 · Archivo Excel de salida",
-            font=FONT_LABEL, text_color=TEXT_SECONDARY, anchor="w",
-        ).grid(row=4, column=0, sticky="ew", pady=(18, 6))
-
-        row_out = ctk.CTkFrame(inner, fg_color="transparent")
-        row_out.grid(row=5, column=0, sticky="ew")
-        row_out.grid_columnconfigure(0, weight=1)
-        self.ent_output = self._entry(row_out, self.var_output)
-        self.ent_output.grid(row=0, column=0, sticky="ew", padx=(0, 12))
-        self._pick_out_btn = self._btn_secondary(
-            row_out, "Guardar como…", self._pick_output, width=160
-        )
-        self._pick_out_btn.grid(row=0, column=1, sticky="e")
-
-        # ---- 3. Período ----
-        ctk.CTkLabel(
-            inner, text="3 · Período contable",
-            font=FONT_LABEL, text_color=TEXT_SECONDARY, anchor="w",
-        ).grid(row=6, column=0, sticky="ew", pady=(18, 6))
-
-        row_per = ctk.CTkFrame(inner, fg_color="transparent")
-        row_per.grid(row=7, column=0, sticky="ew")
-        row_per.grid_columnconfigure(1, weight=1)
-        self.ent_period = self._entry(row_per, self.var_period)
-        self.ent_period.configure(width=140)
-        self.ent_period.grid(row=0, column=0, sticky="w")
-        ctk.CTkLabel(
-            row_per,
-            text="Formato obligatorio:  AAAA-MM",
-            font=FONT_HINT, text_color=TEXT_MUTED, anchor="w",
-        ).grid(row=0, column=1, sticky="w", padx=(14, 0))
-
-        ctk.CTkLabel(
-            inner,
-            text="Atajo: Ctrl+Enter o F5 para procesar cuando los datos sean válidos.",
-            font=FONT_HINT, text_color=TEXT_MUTED, anchor="w",
-        ).grid(row=8, column=0, sticky="ew", pady=(16, 0))
-
-    # ---------- Tarjeta de tipos de cambio USD ----------
-    def _build_fx_card(self, parent) -> None:
-        card = self._card(parent)
-        card.pack(fill=X, padx=PAD_X, pady=8)
-
-        inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill=X, padx=PAD_INNER, pady=PAD_INNER)
-        inner.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(
-            inner,
-            text="TIPOS DE CAMBIO USD (OPCIONAL)",
-            font=FONT_OVERLINE,
+            sec3,
+            text="Formato AAAA-MM. Es la FECHA\nque llevará cada fila de la base.",
+            font=FONT_HINT,
             text_color=TEXT_MUTED,
             anchor="w",
-        ).grid(row=0, column=0, sticky="ew", pady=(0, 4))
+            justify="left",
+        ).grid(row=1, column=1, sticky="w", padx=(12, 0), pady=(8, 0))
 
+        # ---- 4 · Tipos de cambio USD ----
+        sec4 = ctk.CTkFrame(scroll, fg_color="transparent")
+        sec4.pack(fill=X, padx=PAD, pady=(18, 16))
+        sec4.grid_columnconfigure(0, weight=1)
+        sec4.grid_columnconfigure(1, weight=0)
+
+        self._overline(sec4, "4 · DÓLAR POR COMPAÑÍA (OPCIONAL)").grid(
+            row=0, column=0, columnspan=2, sticky="ew"
+        )
         ctk.CTkLabel(
-            inner,
+            sec4,
             text=(
-                "1 USD = X ARS para cada cuenta liquidada en dólares. Si lo dejás "
-                "vacío, las filas en dólares de esa compañía quedarán como "
-                "rechazadas en el log."
+                "Cada aseguradora liquida con SU tipo de cambio. "
+                "Si queda vacío, sus filas en dólares se rechazan."
             ),
             font=FONT_HINT,
             text_color=TEXT_MUTED,
             anchor="w",
             justify="left",
-            wraplength=WRAP_TEXT,
-        ).grid(row=1, column=0, sticky="ew", pady=(0, 10))
-
-        rows_holder = ctk.CTkFrame(inner, fg_color="transparent")
-        rows_holder.grid(row=2, column=0, sticky="ew")
-        rows_holder.grid_columnconfigure(1, weight=1)
+            wraplength=WRAP_SIDE,
+        ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 4))
 
         self._fx_entries: dict[str, ctk.CTkEntry] = {}
-        for i, (display, key) in enumerate(FX_COMPANIES):
+        for i, (display, key) in enumerate(FX_COMPANIES, start=2):
             ctk.CTkLabel(
-                rows_holder,
-                text=display,
-                font=FONT_LABEL,
-                text_color=TEXT_SECONDARY,
-                anchor="w",
-            ).grid(row=i, column=0, sticky="w", padx=(0, 14), pady=(0 if i == 0 else 8, 0))
-
-            ent = self._entry(rows_holder, self.var_fx[key])
-            ent.configure(placeholder_text="1234.56")
-            ent.grid(row=i, column=1, sticky="ew", pady=(0 if i == 0 else 8, 0))
+                sec4, text=display, font=FONT_LABEL, text_color=TEXT_SECONDARY, anchor="w"
+            ).grid(row=i, column=0, sticky="w", pady=(8, 0))
+            ent = self._entry(sec4, self.var_fx[key])
+            ent.configure(width=110, justify="right", font=FONT_MONO_SM, placeholder_text="1420")
+            ent.grid(row=i, column=1, sticky="e", pady=(8, 0))
             self._fx_entries[key] = ent
 
-    # ---------- Barra de acciones ----------
-    def _build_action_card(self, parent) -> None:
-        card = self._card(parent)
-        card.pack(fill=X, padx=PAD_X, pady=8)
+    # ---------- Panel derecho: estado + pestañas ----------
+    def _build_main(self) -> None:
+        main = ctk.CTkFrame(self.root, fg_color="transparent")
+        main.grid(row=0, column=1, sticky="nsew")
+        main.grid_rowconfigure(1, weight=1)
+        main.grid_columnconfigure(0, weight=1)
 
-        inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill=X, padx=PAD_INNER, pady=16)
-        inner.grid_columnconfigure(0, weight=1)
-
-        actions = ctk.CTkFrame(inner, fg_color="transparent")
-        actions.grid(row=0, column=0, sticky="ew")
-        actions.grid_columnconfigure(0, weight=0)
-        actions.grid_columnconfigure(1, weight=0)
-        actions.grid_columnconfigure(2, weight=1)
-
-        self.btn_run = self._btn_primary(actions, "Procesar", self._run)
-        self.btn_run.grid(row=0, column=0, sticky="w", padx=(0, 10))
-
-        self.btn_open = self._btn_secondary(
-            actions, "Abrir carpeta de salida", self._open_output, width=210
+        # ---- Barra de estado ----
+        status_card = ctk.CTkFrame(
+            main, fg_color=SURFACE, corner_radius=12, border_width=1, border_color=BORDER_SUBTLE
         )
-        self.btn_open.grid(row=0, column=1, sticky="w")
+        status_card.grid(row=0, column=0, sticky="ew", padx=PAD, pady=(PAD, 10))
+        status_card.grid_columnconfigure(1, weight=1)
 
-        prog_col = ctk.CTkFrame(actions, fg_color="transparent")
-        prog_col.grid(row=0, column=2, sticky="ew", padx=(24, 0))
-        prog_col.grid_columnconfigure(0, weight=1)
+        dot_wrap = ctk.CTkFrame(status_card, fg_color="transparent")
+        dot_wrap.grid(row=0, column=0, sticky="w", padx=(16, 0), pady=14)
+        self.status_canvas = Canvas(
+            dot_wrap, width=12, height=12, bg=SURFACE, highlightthickness=0, bd=0
+        )
+        self.status_canvas.pack()
+        self._dot_id = self.status_canvas.create_oval(2, 2, 10, 10, fill=TEXT_MUTED, outline="")
 
-        prog_top = ctk.CTkFrame(prog_col, fg_color="transparent")
-        prog_top.grid(row=0, column=0, sticky="ew")
-        prog_top.grid_columnconfigure(0, weight=1)
+        status_text = ctk.CTkFrame(status_card, fg_color="transparent")
+        status_text.grid(row=0, column=1, sticky="ew", padx=(10, 12), pady=10)
+        status_text.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
-            prog_top, text="Progreso",
-            font=FONT_LABEL, text_color=TEXT_MUTED, anchor="w",
-        ).grid(row=0, column=0, sticky="w")
-        ctk.CTkLabel(
-            prog_top, textvariable=self.var_progress_label,
-            font=FONT_BODY_SM, text_color=TEXT_SECONDARY, anchor="e",
-        ).grid(row=0, column=1, sticky="e")
+            status_text,
+            textvariable=self.var_status,
+            font=("Segoe UI Semibold", 12),
+            text_color=TEXT_PRIMARY,
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew")
 
+        prog_row = ctk.CTkFrame(status_text, fg_color="transparent")
+        prog_row.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        prog_row.grid_columnconfigure(0, weight=1)
         self.progress = ctk.CTkProgressBar(
-            prog_col,
+            prog_row,
             mode="determinate",
             progress_color=ACCENT,
             fg_color=INPUT_BG,
-            corner_radius=6,
-            height=8,
+            corner_radius=4,
+            height=6,
         )
-        self.progress.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        self.progress.grid(row=0, column=0, sticky="ew")
         self.progress.set(0)
+        ctk.CTkLabel(
+            prog_row,
+            textvariable=self.var_progress_label,
+            font=FONT_HINT,
+            text_color=TEXT_MUTED,
+            anchor="e",
+            width=44,
+        ).grid(row=0, column=1, sticky="e", padx=(10, 0))
 
-        # Estado: dot + texto
-        status = ctk.CTkFrame(inner, fg_color="transparent")
-        status.grid(row=1, column=0, sticky="ew", pady=(14, 0))
-        status.grid_columnconfigure(1, weight=1)
-
-        dot_wrap = ctk.CTkFrame(status, fg_color=SURFACE_MUTED, corner_radius=10)
-        dot_wrap.grid(row=0, column=0, sticky="w")
-        canvas_inner = Canvas(
-            dot_wrap, width=10, height=10,
-            bg=SURFACE_MUTED, highlightthickness=0, bd=0,
+        self.btn_open = self._btn_secondary(
+            status_card, "Abrir carpeta de salida", self._open_output, width=178
         )
-        canvas_inner.pack(padx=10, pady=10)
-        self.status_canvas = canvas_inner
-        self._dot_id = canvas_inner.create_oval(1, 1, 9, 9, fill=TEXT_MUTED, outline="")
+        self.btn_open.grid(row=0, column=2, sticky="e", padx=(0, 14), pady=10)
+
+        # ---- Pestañas ----
+        self.tabs = ctk.CTkTabview(
+            main,
+            fg_color=SURFACE,
+            corner_radius=12,
+            border_width=1,
+            border_color=BORDER_SUBTLE,
+            segmented_button_fg_color=SURFACE_MUTED,
+            segmented_button_selected_color=ACCENT,
+            segmented_button_selected_hover_color=ACCENT_HOVER,
+            segmented_button_unselected_color=SURFACE_MUTED,
+            segmented_button_unselected_hover_color=INPUT_FOCUS,
+            text_color=TEXT_PRIMARY,
+        )
+        self.tabs.grid(row=1, column=0, sticky="nsew", padx=PAD, pady=(0, PAD))
+        self.tab_summary = self.tabs.add("Resumen")
+        self.tab_log = self.tabs.add("Actividad")
+
+        self._build_summary_tab()
+        self._build_log_tab()
+        self.tabs.set("Resumen")
+
+    # ---------- Pestaña Resumen ----------
+    def _build_summary_tab(self) -> None:
+        self.tab_summary.grid_rowconfigure(0, weight=1)
+        self.tab_summary.grid_columnconfigure(0, weight=1)
+
+        self.summary_scroll = ctk.CTkScrollableFrame(
+            self.tab_summary,
+            fg_color="transparent",
+            corner_radius=0,
+            border_width=0,
+            scrollbar_fg_color=SURFACE,
+            scrollbar_button_color=BORDER_STRONG,
+            scrollbar_button_hover_color=TEXT_MUTED,
+        )
+        self.summary_scroll.grid(row=0, column=0, sticky="nsew")
+        self._render_summary_empty()
+
+    def _clear_summary(self) -> None:
+        for w in self.summary_scroll.winfo_children():
+            w.destroy()
+
+    def _render_summary_empty(self) -> None:
+        self._clear_summary()
+        holder = ctk.CTkFrame(self.summary_scroll, fg_color="transparent")
+        holder.pack(fill=X, pady=(90, 0))
+        ctk.CTkLabel(
+            holder, text="—", font=("Segoe UI", 34), text_color=BORDER_STRONG
+        ).pack()
+        ctk.CTkLabel(
+            holder,
+            text="Todavía no hay resultados",
+            font=FONT_H2,
+            text_color=TEXT_SECONDARY,
+        ).pack(pady=(6, 2))
+        ctk.CTkLabel(
+            holder,
+            text=(
+                "Completá la configuración de la izquierda y pulsá «Procesar». "
+                "Acá vas a ver las filas generadas por compañía y los archivos omitidos."
+            ),
+            font=FONT_BODY_SM,
+            text_color=TEXT_MUTED,
+            justify="center",
+            wraplength=WRAP_MAIN,
+        ).pack()
+
+    def _kpi(self, parent, column: int, value: str, caption: str, color: str, soft: str) -> None:
+        chip = ctk.CTkFrame(
+            parent, fg_color=soft, corner_radius=10, border_width=1, border_color=BORDER_SUBTLE
+        )
+        chip.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 10, 0))
+        ctk.CTkLabel(chip, text=value, font=FONT_KPI, text_color=color, anchor="w").pack(
+            anchor="w", padx=14, pady=(10, 0)
+        )
+        ctk.CTkLabel(chip, text=caption, font=FONT_HINT, text_color=TEXT_SECONDARY, anchor="w").pack(
+            anchor="w", padx=14, pady=(0, 10)
+        )
+
+    def _render_summary(self, summary: RunSummary) -> None:
+        self._clear_summary()
+
+        body = ctk.CTkFrame(self.summary_scroll, fg_color="transparent")
+        body.pack(fill=X, padx=14, pady=12)
+        body.grid_columnconfigure(0, weight=1)
+
+        # ---- KPIs ----
+        kpis = ctk.CTkFrame(body, fg_color="transparent")
+        kpis.grid(row=0, column=0, sticky="ew")
+        for c in range(4):
+            kpis.grid_columnconfigure(c, weight=1, uniform="kpi")
+
+        n_skip = len(summary.files_skipped)
+        n_rej = summary.rejected_rows_count
+        self._kpi(kpis, 0, f"{summary.total_rows_generated:,}".replace(",", "."),
+                  "Filas generadas", TEXT_PRIMARY, ACCENT_SOFT)
+        self._kpi(kpis, 1, str(len(summary.files_processed)),
+                  "Archivos procesados", SUCCESS, SUCCESS_SOFT)
+        self._kpi(kpis, 2, str(n_skip), "Archivos omitidos",
+                  WARNING if n_skip else TEXT_MUTED,
+                  WARNING_SOFT if n_skip else SURFACE_MUTED)
+        self._kpi(kpis, 3, str(n_rej), "Filas rechazadas",
+                  ERROR if n_rej else TEXT_MUTED,
+                  ERROR_SOFT if n_rej else SURFACE_MUTED)
+
+        # ---- Archivos omitidos (lo más accionable: va primero) ----
+        if summary.files_skipped:
+            skipped_card = ctk.CTkFrame(
+                body, fg_color=SURFACE_MUTED, corner_radius=10,
+                border_width=1, border_color=BORDER_SUBTLE,
+            )
+            skipped_card.grid(row=1, column=0, sticky="ew", pady=(14, 0))
+            inner = ctk.CTkFrame(skipped_card, fg_color="transparent")
+            inner.pack(fill=X, padx=14, pady=12)
+            ctk.CTkLabel(
+                inner,
+                text="⚠  Archivos omitidos — revisá si falta alguna aseguradora",
+                font=FONT_H2,
+                text_color=WARNING,
+                anchor="w",
+            ).pack(anchor="w", fill=X)
+            for item in summary.files_skipped:
+                ctk.CTkLabel(
+                    inner,
+                    text=f"•  {item.get('file', '?')}  —  {item.get('reason', '')}",
+                    font=FONT_BODY_SM,
+                    text_color=TEXT_SECONDARY,
+                    anchor="w",
+                    justify="left",
+                    wraplength=WRAP_MAIN,
+                ).pack(anchor="w", fill=X, pady=(6, 0))
+
+        # ---- Filas por compañía ----
+        comp_card = ctk.CTkFrame(
+            body, fg_color=SURFACE_MUTED, corner_radius=10,
+            border_width=1, border_color=BORDER_SUBTLE,
+        )
+        comp_card.grid(row=2, column=0, sticky="ew", pady=(14, 0))
+        comp_in = ctk.CTkFrame(comp_card, fg_color="transparent")
+        comp_in.pack(fill=X, padx=14, pady=12)
+        comp_in.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
-            status, textvariable=self.var_status,
-            font=("Segoe UI", 12, "bold"),
-            text_color=TEXT_PRIMARY, anchor="w",
-        ).grid(row=0, column=1, sticky="ew", padx=(12, 0))
+            comp_in, text="Filas por compañía", font=FONT_H2, text_color=TEXT_PRIMARY, anchor="w"
+        ).grid(row=0, column=0, sticky="ew")
+        ctk.CTkLabel(
+            comp_in, text=f"{len(summary.rows_by_company)} compañías",
+            font=FONT_HINT, text_color=TEXT_MUTED, anchor="e",
+        ).grid(row=0, column=1, sticky="e")
 
-    # ---------- Tarjeta de Actividad (log) ----------
-    def _build_log_card(self, parent) -> None:
-        card = self._card(parent)
-        card.pack(fill=X, padx=PAD_X, pady=(8, 18))
+        for i, (comp, n) in enumerate(summary.rows_by_company.items(), start=1):
+            ctk.CTkFrame(comp_in, fg_color=BORDER_SUBTLE, height=1, corner_radius=0).grid(
+                row=2 * i - 1, column=0, columnspan=2, sticky="ew", pady=6
+            )
+            ctk.CTkLabel(
+                comp_in, text=comp, font=FONT_BODY_SM, text_color=TEXT_SECONDARY, anchor="w"
+            ).grid(row=2 * i, column=0, sticky="ew")
+            ctk.CTkLabel(
+                comp_in, text=f"{n:,}".replace(",", "."),
+                font=FONT_MONO_SM, text_color=TEXT_PRIMARY, anchor="e",
+            ).grid(row=2 * i, column=1, sticky="e")
 
-        inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill=X, padx=18, pady=(16, 18))
-        inner.grid_columnconfigure(0, weight=1)
+    # ---------- Pestaña Actividad ----------
+    def _build_log_tab(self) -> None:
+        self.tab_log.grid_rowconfigure(1, weight=1)
+        self.tab_log.grid_columnconfigure(0, weight=1)
 
-        # Header
-        hdr = ctk.CTkFrame(inner, fg_color="transparent")
-        hdr.grid(row=0, column=0, sticky="ew")
+        hdr = ctk.CTkFrame(self.tab_log, fg_color="transparent")
+        hdr.grid(row=0, column=0, sticky="ew", padx=4, pady=(2, 8))
         hdr.grid_columnconfigure(0, weight=1)
-
-        hdr_left = ctk.CTkFrame(hdr, fg_color="transparent")
-        hdr_left.grid(row=0, column=0, sticky="ew")
         ctk.CTkLabel(
-            hdr_left, text="Actividad",
-            font=FONT_H2, text_color=TEXT_PRIMARY, anchor="w",
-        ).pack(anchor="w", fill=X)
-        ctk.CTkLabel(
-            hdr_left, text="Detalle técnico del proceso y advertencias.",
-            font=FONT_HINT, text_color=TEXT_MUTED, anchor="w",
-        ).pack(anchor="w", fill=X, pady=(2, 0))
-
-        self.btn_clear_log = self._btn_secondary(hdr, "Limpiar", self._clear_log, width=96)
-        self.btn_clear_log.grid(row=0, column=1, sticky="ne", padx=(12, 0))
-
-        # Holder de altura fija para el textbox; el ancho viene de pack(fill=X).
-        log_box_holder = ctk.CTkFrame(inner, fg_color="transparent", height=LOG_HEIGHT)
-        log_box_holder.grid(row=1, column=0, sticky="ew", pady=(12, 0))
-        log_box_holder.grid_propagate(False)
-        log_box_holder.pack_propagate(False)
+            hdr,
+            text="Detalle técnico del proceso, advertencias y filas rechazadas.",
+            font=FONT_HINT,
+            text_color=TEXT_MUTED,
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew")
+        self.btn_clear_log = self._btn_secondary(hdr, "Limpiar", self._clear_log, width=88)
+        self.btn_clear_log.grid(row=0, column=1, sticky="e")
 
         self.log_tb = ctk.CTkTextbox(
-            log_box_holder,
+            self.tab_log,
             font=FONT_LOG,
             fg_color=SURFACE_MUTED,
             text_color=TEXT_SECONDARY,
@@ -488,16 +607,17 @@ class ConsolidatorApp:
             border_width=1,
             border_color=BORDER_SUBTLE,
             wrap="word",
-            scrollbar_button_color=TEXT_MUTED,
-            scrollbar_button_hover_color=TEXT_SECONDARY,
+            scrollbar_button_color=BORDER_STRONG,
+            scrollbar_button_hover_color=TEXT_MUTED,
         )
-        self.log_tb.pack(fill=BOTH, expand=True)
+        self.log_tb.grid(row=1, column=0, sticky="nsew", padx=2, pady=(0, 2))
         self.log_tb.configure(state="disabled")
 
         tb = getattr(self.log_tb, "_textbox", None)
         self._log_text_inner = tb
         if tb is not None:
             tb.tag_configure("error", foreground=ERROR)
+            tb.tag_configure("warn", foreground=WARNING)
             tb.tag_configure("hint", foreground=TEXT_MUTED)
 
         self._append_welcome_hint()
@@ -507,8 +627,7 @@ class ConsolidatorApp:
     # ------------------------------------------------------------------
     def _append_welcome_hint(self) -> None:
         welcome = (
-            "Aún no hay ejecución. Completá la configuración arriba y pulsá «Procesar». "
-            "Los mensajes del motor aparecerán aquí línea por línea.\n"
+            "Aún no hay ejecución. Los mensajes del motor aparecerán aquí línea por línea.\n"
         )
         self.log_tb.configure(state="normal")
         self.log_tb.insert("1.0", welcome)
@@ -541,14 +660,62 @@ class ConsolidatorApp:
         self._strip_welcome_hint()
         start = self.log_tb.index(END)
         self.log_tb.insert(END, msg + "\n")
-        if msg.upper().startswith("ERROR") and self._log_text_inner is not None:
-            try:
-                line_end = self.log_tb.index(f"{start} lineend")
-                self._log_text_inner.tag_add("error", start, line_end)
-            except Exception:
-                pass
+        if self._log_text_inner is not None:
+            tag = None
+            up = msg.upper()
+            if up.startswith("ERROR") or "[ERROR]" in up:
+                tag = "error"
+            elif "[WARNING]" in up or up.startswith("OMITIDO"):
+                tag = "warn"
+            if tag:
+                try:
+                    line_end = self.log_tb.index(f"{start} lineend")
+                    self._log_text_inner.tag_add(tag, start, line_end)
+                except Exception:
+                    pass
         self.log_tb.configure(state="disabled")
         self.log_tb.see("end")
+
+    # ------------------------------------------------------------------
+    # Preview de la carpeta de origen
+    # ------------------------------------------------------------------
+    def _refresh_input_stats(self) -> None:
+        d = self.var_input.get().strip()
+        if not d:
+            self.var_input_stats.set("Carpeta con los archivos de cada aseguradora (Excel/PDF).")
+            self.lbl_input_stats.configure(text_color=TEXT_MUTED)
+            return
+        p = Path(d)
+        if not p.is_dir():
+            self.var_input_stats.set("La carpeta no existe.")
+            self.lbl_input_stats.configure(text_color=ERROR)
+            return
+        try:
+            files = list_input_files(d)
+        except Exception:
+            files = []
+        if not files:
+            self.var_input_stats.set("No se encontraron archivos compatibles (.xlsx/.xls/.pdf).")
+            self.lbl_input_stats.configure(text_color=WARNING)
+            return
+        unknown = [f.name for f in files if detect_parser(f.name) is None]
+        if unknown:
+            self.var_input_stats.set(
+                f"{len(files)} archivos · {len(unknown)} sin regla de importación "
+                f"(se omitirán): {', '.join(unknown[:3])}{'…' if len(unknown) > 3 else ''}"
+            )
+            self.lbl_input_stats.configure(text_color=WARNING)
+            # Loguear el detalle una sola vez por carpeta/lista.
+            key = (d, tuple(unknown))
+            if key != getattr(self, "_last_unknown_logged", None):
+                self._last_unknown_logged = key
+                for name in unknown:
+                    self._enqueue_log(f"OMITIDO (sin regla de importación): {name}")
+        else:
+            self.var_input_stats.set(
+                f"{len(files)} archivos detectados, todos con regla de importación."
+            )
+            self.lbl_input_stats.configure(text_color=TEXT_SECONDARY)
 
     # ------------------------------------------------------------------
     # Estado / progreso
@@ -571,10 +738,8 @@ class ConsolidatorApp:
         colors = {
             "idle": TEXT_MUTED,
             "running": ACCENT,
-            "paused": WARNING,
             "finished": SUCCESS,
             "error": ERROR,
-            "aborted": WARNING,
         }
         self.status_canvas.itemconfigure(self._dot_id, fill=colors.get(mode, TEXT_MUTED))
 
@@ -620,6 +785,7 @@ class ConsolidatorApp:
             if not self.var_output.get():
                 out_default = Path(d).parent / "CUENTAS_CORRIENTES_CONSOLIDADO.xlsx"
                 self.var_output.set(str(out_default))
+            self._refresh_input_stats()
 
     def _pick_output(self) -> None:
         f = filedialog.asksaveasfilename(
@@ -663,7 +829,7 @@ class ConsolidatorApp:
         period = self.var_period.get().strip()
 
         if not input_dir or not Path(input_dir).is_dir():
-            messagebox.showerror("Revisá los datos", "La carpeta de origen no existe o está vacía el campo.")
+            messagebox.showerror("Revisá los datos", "La carpeta de origen no existe o el campo está vacío.")
             return
         if not output_file:
             messagebox.showerror("Revisá los datos", "Indicá la ruta del archivo Excel de salida.")
@@ -704,7 +870,7 @@ class ConsolidatorApp:
 
         self._running = True
         self._stop_pulse()
-        self.btn_run.configure(state="disabled")
+        self.btn_run.configure(state="disabled", text="Procesando…")
         self.btn_open.configure(state="disabled")
         self._set_controls_busy(True)
         self.log_tb.configure(state="normal")
@@ -715,6 +881,7 @@ class ConsolidatorApp:
         self.var_status.set("Procesando…")
         self._set_status_appearance("running")
         self._pulse_tick()
+        self.tabs.set("Actividad")
 
         params = RunParams(input_dir=input_dir, output_file=output_file, period=period)
         threading.Thread(target=self._run_thread, args=(params,), daemon=True).start()
@@ -729,12 +896,6 @@ class ConsolidatorApp:
             self._last_output_dir = Path(params.output_file).parent.resolve()
             self._last_summary = summary
             self._enqueue_log("=== FIN ===")
-            self._enqueue_log(
-                f"Total={summary.total_rows_generated} | archivos procesados={len(summary.files_processed)} "
-                f"| omitidos={len(summary.files_skipped)} | rechazados={summary.rejected_rows_count}"
-            )
-            for comp, n in summary.rows_by_company.items():
-                self._enqueue_log(f"  {comp}: {n}")
             self.root.after(0, self._on_done_ok)
         except Exception as exc:
             self._enqueue_log(f"ERROR: {exc}")
@@ -743,34 +904,44 @@ class ConsolidatorApp:
     def _on_done_ok(self) -> None:
         self._running = False
         self._stop_pulse()
-        self.btn_run.configure(state="normal")
+        self.btn_run.configure(state="normal", text="Procesar")
         self._set_controls_busy(False)
         self._update_open_folder_state()
         self.progress.set(1.0)
         self.var_progress_label.set("100%")
-        total = self._last_summary.total_rows_generated if self._last_summary else 0
-        self.var_status.set(f"Listo · {total} filas generadas")
+        summary = self._last_summary
+        total = summary.total_rows_generated if summary else 0
+        n_skip = len(summary.files_skipped) if summary else 0
+        extra = f" · {n_skip} archivos omitidos" if n_skip else ""
+        self.var_status.set(f"Listo · {total} filas generadas{extra}")
         self._set_status_appearance("finished")
+        if summary is not None:
+            self._render_summary(summary)
+            self.tabs.set("Resumen")
 
     def _on_done_error(self, exc: Exception) -> None:
         self._running = False
         self._stop_pulse()
-        self.btn_run.configure(state="normal")
+        self.btn_run.configure(state="normal", text="Procesar")
         self._set_controls_busy(False)
         self._update_open_folder_state()
         self.var_progress_label.set("")
         self.var_status.set(f"Error: {exc}")
         self._set_status_appearance("error")
+        self.tabs.set("Actividad")
         messagebox.showerror("Error en el proceso", str(exc))
 
     def _on_progress(self, current: int, total: int, label: str) -> None:
+        if len(label) > 58:
+            label = label[:55] + "…"
+
         def update():
             t = max(1, total)
             frac = min(1.0, current / t)
             self.progress.set(frac)
             pct = int(round(100 * frac))
             self.var_progress_label.set(f"{pct}%")
-            self.var_status.set(f"[{current}/{total}] {label}")
+            self.var_status.set(f"[{current}/{total}]  {label}")
             self._set_status_appearance("running")
 
         self.root.after(0, update)

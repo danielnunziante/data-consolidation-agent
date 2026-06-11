@@ -38,7 +38,7 @@ def parse(file_path: str, fecha: date) -> ParseResult:
     columns = list(df.columns)
     c_pol = find_col(columns, "Poliza / Endoso", "Poliza/Endoso", "Poliza")
     c_tom = find_col(columns, "Tomador")
-    c_prima = find_col(columns, "Prima Tarifa $", "Prima $")
+    c_prima = find_col(columns, "Prima de tarifa $", "Prima Tarifa $", "Prima $")
     c_com = find_col(columns, "Comisión pagada $", "Comision pagada $")
 
     if not all([c_pol, c_tom, c_prima, c_com]):
@@ -51,8 +51,11 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         if not raw_pol:
             continue
         poliza = raw_pol.split("/")[0].strip() if "/" in raw_pol else raw_pol
+        # Filas de ajuste/nota (p.ej. "COMISIONES ABRIL 2026") no son pólizas.
+        if not poliza.replace("-", "").isdigit():
+            continue
         prima = to_float(row[c_prima])
-        premio = prima * 1.40 if prima is not None else None
+        premio = round(prima * 1.40, 2) if prima is not None else None
         try:
             rec = make_record(
                 fecha=fecha,

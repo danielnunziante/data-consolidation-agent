@@ -51,9 +51,82 @@ def _col_index(headers: list[str], *candidates: str) -> int | None:
     return None
 
 
+def _parse_excel(result: ParseResult, file_path: str, fecha: date) -> bool:
+    """Layout xlsx (ABRIL 2026+): hoja Informe_Comisiones con tabla
+    CTTO | CUIT | RAZON SOCIAL | ... | RECAUDACION | TIPO | % COMISION | $ COMISION."""
+    try:
+        import pandas as pd
+
+        sheets = pd.read_excel(file_path, sheet_name=None, header=None, dtype=object)
+    except Exception:
+        return False
+    fname = Path(file_path).name
+    found = False
+    for sheet_name, df in sheets.items():
+        header_idx = None
+        headers: list[str] = []
+        for i in range(min(30, len(df))):
+            cells = [safe_str(c) for c in df.iloc[i].tolist()]
+            joined = normalize(" ".join(cells))
+            if "RAZON SOCIAL" in joined and ("RECAUDACION" in joined or "RECAUDADO" in joined):
+                header_idx = i
+                headers = cells
+                break
+        if header_idx is None:
+            continue
+        i_pol = _col_index(headers, "CTTO", "NRO CONTRATO", "CONTRATO")
+        i_aseg = _col_index(headers, "RAZON SOCIAL", "RAZON")
+        i_recaud = _col_index(headers, "RECAUDACION", "RECAUDADO")
+        i_com = _col_index(headers, "$ COMISION")
+        if i_com is None:
+            i_com = _col_index(headers, "COMISION")
+        if None in (i_pol, i_aseg, i_recaud, i_com):
+            continue
+        for r_i in range(header_idx + 1, len(df)):
+            row = [safe_str(c) for c in df.iloc[r_i].tolist()]
+            poliza = row[i_pol] if i_pol < len(row) else ""
+            asegurado = row[i_aseg] if i_aseg < len(row) else ""
+            first_cell = normalize(row[0]) if row else ""
+            if not poliza or poliza.lower() == "nan" or first_cell.startswith("TOTAL"):
+                continue
+            if not asegurado or asegurado.lower() == "nan":
+                continue
+            recaudado = to_float(row[i_recaud]) if i_recaud < len(row) else None
+            comision_bruta = to_float(row[i_com]) if i_com < len(row) else None
+            if comision_bruta is None or recaudado is None:
+                continue
+            try:
+                rec = make_record(
+                    fecha=fecha,
+                    poliza=poliza,
+                    asegurado=asegurado,
+                    seccion=SECCION,
+                    compania=COMPANY,
+                    tipo="PR",
+                    comisiones=comision_bruta / 1.21,
+                    prima=recaudado,
+                    premio=recaudado,
+                    source_file=fname,
+                    source_sheet=sheet_name,
+                    source_row=r_i + 1,
+                )
+                result.records.append(rec)
+                found = True
+            except Exception as exc:
+                log.warning("BERKLEY ART fila %s: %s", r_i, exc)
+                reject(result, fname, f"Error fila: {exc}", source_sheet=sheet_name, source_row=r_i + 1, raw=row)
+    return found
+
+
 def parse(file_path: str, fecha: date) -> ParseResult:
     result = ParseResult(parser_name="berkley_art", source_file=file_path)
     fname = Path(file_path).name
+
+    if Path(file_path).suffix.lower() in {".xlsx", ".xls", ".xlsm"}:
+        if _parse_excel(result, file_path, fecha):
+            return result
+        if result.rejected:
+            return result
 
     try:
         with pdfplumber.open(file_path) as pdf:

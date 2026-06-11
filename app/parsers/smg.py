@@ -49,14 +49,40 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         reject(result, Path(file_path).name, f"Columnas insuficientes: {columns}", source_sheet=sheet_name)
         return result
 
-    # Dedup USD: cuando Cod_moneda == 1 (USD) existe una fila duplicada en pesos
-    # para la misma póliza. Descartamos TODAS las filas USD de pólizas que también
-    # tengan al menos una fila en pesos (Cod_moneda != 1).
+    # Dedup USD. Las pólizas en dólares vienen duplicadas:
+    # a) Par USD/pesos con el MISMO recibo y la misma comisión, ambas filas
+    #    con Cod_moneda == 1: una trae los importes en USD y la otra ya
+    #    convertidos a pesos. Se conserva sólo la de pesos (mayor |prima|).
+    # b) (histórico) fila USD duplicada de una fila en pesos (Cod_moneda != 1)
+    #    de la misma póliza: se descartan las USD.
     drop_indices: set = set()
+    c_recibo = find_col(columns, "Nro_recibo", "Recibo")
     if c_moneda is not None:
         def _pol_key(r) -> str:
             return safe_str(r[c_pol])
 
+        # a) pares USD/pesos dentro del mismo recibo
+        grupos: dict[tuple, list] = {}
+        if c_recibo is not None:
+            for idx, row in df.iterrows():
+                if to_float(row[c_moneda]) != 1:
+                    continue
+                key = (
+                    _pol_key(row),
+                    safe_str(row[c_recibo]),
+                    safe_str(row[c_com]),
+                )
+                grupos.setdefault(key, []).append(idx)
+            for key, idxs in grupos.items():
+                if len(idxs) < 2:
+                    continue
+                primas = {i: abs(to_float(df.loc[i, c_prima]) or 0.0) for i in idxs}
+                keep = max(primas, key=primas.get)
+                for i in idxs:
+                    if i != keep:
+                        drop_indices.add(i)
+
+        # b) USD duplicadas de filas en pesos de la misma póliza
         polizas_con_pesos: set = set()
         for idx, row in df.iterrows():
             mon_v = to_float(row[c_moneda])
@@ -64,8 +90,20 @@ def parse(file_path: str, fecha: date) -> ParseResult:
                 polizas_con_pesos.add(_pol_key(row))
 
         for idx, row in df.iterrows():
+            if idx in drop_indices:
+                continue
             mon_v = to_float(row[c_moneda])
             if mon_v == 1 and _pol_key(row) in polizas_con_pesos:
+                # Si la fila sobrevivió al dedup por par (es la copia en pesos
+                # de su recibo), no la tocamos.
+                if c_recibo is not None:
+                    key = (
+                        _pol_key(row),
+                        safe_str(row[c_recibo]),
+                        safe_str(row[c_com]),
+                    )
+                    if len(grupos.get(key, [])) >= 2:
+                        continue
                 drop_indices.add(idx)
 
     fname = Path(file_path).name

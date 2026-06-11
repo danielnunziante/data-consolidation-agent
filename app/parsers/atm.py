@@ -87,7 +87,7 @@ def parse(file_path: str, fecha: date) -> ParseResult:
             comision_total = None
 
         tipo_liq = normalize(row[c_tipo_liq]) if c_tipo_liq else ""
-        if "ONE SHOT" in tipo_liq:
+        if "ONESHOT" in tipo_liq.replace(" ", ""):
             tipo = "AY"
             prima = None
             premio = None

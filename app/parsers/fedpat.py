@@ -58,7 +58,16 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         if not poliza or poliza.lower() == "nan":
             continue
         source_row = idx + header_row + 2
-        # Fila PR
+        # Fila PR. Anulaciones: si la comisión es negativa, prima y premio
+        # se vuelcan negativos (así lo hace la consolidación manual).
+        com_v = to_float(row[c_com_norm])
+        prima_v = to_float(row[c_prima])
+        premio_v = to_float(row[c_premio])
+        if com_v is not None and com_v < 0:
+            if prima_v is not None and prima_v > 0:
+                prima_v = -prima_v
+            if premio_v is not None and premio_v > 0:
+                premio_v = -premio_v
         try:
             rec_pr = make_record(
                 fecha=fecha,
@@ -67,9 +76,9 @@ def parse(file_path: str, fecha: date) -> ParseResult:
                 seccion=row[c_ramo],
                 compania=COMPANY,
                 tipo="PR",
-                comisiones=row[c_com_norm],
-                prima=row[c_prima],
-                premio=row[c_premio],
+                comisiones=com_v,
+                prima=prima_v,
+                premio=premio_v,
                 source_file=fname,
                 source_sheet=sheet_name,
                 source_row=source_row,

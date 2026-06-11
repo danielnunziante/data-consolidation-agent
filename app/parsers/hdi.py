@@ -40,7 +40,7 @@ def _is_usd(moneda_value) -> bool:
     n = normalize(moneda_value)
     if not n:
         return False
-    return any(tok in n for tok in ("USD", "U$S", "DOLAR", "DOL"))
+    return any(tok in n for tok in ("USD", "U$S", "U$D", "DOLAR", "DOL", "U$"))
 
 
 def parse(file_path: str, fecha: date) -> ParseResult:
@@ -93,6 +93,7 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         "COMISION MONEDA CTE",
         "COMISION CTE",
         "COM MONEDA CTE",
+        "EN MONEDA CTE",
     )
     c_com_emi = find_col(
         columns,
@@ -100,6 +101,7 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         "COMISION MONEDA EMISION",
         "COMISION EMISION",
         "COM MONEDA EMISION",
+        "EN MONEDA EMISION",
     )
 
     if not all([c_pol, c_aseg, c_rama, c_prima, c_premio, c_com_cte]):

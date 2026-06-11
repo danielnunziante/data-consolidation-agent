@@ -62,6 +62,7 @@ def parse(file_path: str, fecha: date) -> ParseResult:
         c_adic_cob = find_col(columns, "Adic Cobranza")
         c_prima_unif = find_col(columns, "Prima Unif")
         c_premio_cap = find_col(columns, "Premio Cap")
+        c_subtotal = find_col(columns, "SubTotal")
 
         if not all([c_pol, c_aseg, c_ramo, c_com]):
             reject(result, fname, f"Columnas insuficientes: {columns}", source_sheet=sheet_name)
@@ -106,6 +107,31 @@ def parse(file_path: str, fecha: date) -> ParseResult:
                     log.warning("SANCOR 152526 fila %s: %s", idx, exc)
                     reject(result, fname, f"Error IND: {exc}", source_sheet=sheet_name, source_row=source_row, raw=row.to_dict())
             elif sheet_kind == "213871":
+                # Filas "No Definido" (adicionales comerciales/campañas sin
+                # póliza): una única fila AY con póliza "S/D" y el SubTotal.
+                if poliza.strip().lower() == "no definido":
+                    subtotal = to_float(row[c_subtotal]) if c_subtotal else None
+                    if subtotal:
+                        try:
+                            rec_sd = make_record(
+                                fecha=fecha,
+                                poliza="S/D",
+                                asegurado=aseg,
+                                seccion=ramo,
+                                compania=COMPANY,
+                                tipo="AY",
+                                comisiones=subtotal,
+                                prima=None,
+                                premio=None,
+                                source_file=fname,
+                                source_sheet=sheet_name,
+                                source_row=source_row,
+                            )
+                            result.records.append(rec_sd)
+                        except Exception as exc:
+                            log.warning("SANCOR S/D fila %s: %s", idx, exc)
+                            reject(result, fname, f"Error S/D: {exc}", source_sheet=sheet_name, source_row=source_row, raw=row.to_dict())
+                    continue
                 com_v = to_float(row[c_com])
                 prima_v = to_float(row[c_prima_unif]) if c_prima_unif else None
                 premio_v = to_float(row[c_premio_cap]) if c_premio_cap else None

@@ -41,9 +41,9 @@ def _parse_sheet(
     sheet_name: str,
     fecha,
     fname: str,
-    company_name: str,
     sheet_tipo: str,
     result: ParseResult,
+    default_usd: bool,
 ) -> None:
     header_row = detect_header_row(df_raw, ["CLIENTE", "RAMO", "N° DE PÓLIZA", "COMISIÓN", "PREMIO"])
     if header_row is None:
@@ -59,6 +59,7 @@ def _parse_sheet(
     c_prima = find_col(columns, "PRIMA")
     c_prem = find_col(columns, "PREMIO")
     c_pas_name = find_col(columns, "NOMBRE PAS")
+    c_moneda = find_col(columns, "MONEDA")
 
     if not all([c_cli, c_ramo, c_pol, c_com]):
         reject(result, fname, f"Columnas insuficientes: {columns}", source_sheet=sheet_name)
@@ -71,6 +72,11 @@ def _parse_sheet(
         poliza = _clean_poliza(poliza_raw)
         if not poliza:
             continue
+
+        # Las filas en dólares (columna MONEDA "Dólares (USD)") van a la
+        # compañía SAN CRISTOBAL USD convertidas con el TC configurado.
+        moneda_val = safe_str(row[c_moneda]) if c_moneda else ""
+        es_usd = default_usd or contains_any(moneda_val, ["DOLAR", "USD", "U$S"])
 
         if sheet_tipo == "PAS":
             tipo = "PR"
@@ -88,6 +94,22 @@ def _parse_sheet(
             prima = None
             premio = None
 
+        company_name = "SAN CRISTOBAL USD" if es_usd else "SAN CRISTOBAL"
+        tc = None
+        if es_usd:
+            tc = get_fx("SAN CRISTOBAL")
+            if tc is None:
+                reject(
+                    result,
+                    fname,
+                    "USD sin TC configurado (definir SAN_CRISTOBAL_USD_TC o config/fx.json)",
+                    source_sheet=sheet_name,
+                    source_row=idx + header_row + 2,
+                    compania=company_name,
+                    raw=row.to_dict(),
+                )
+                continue
+
         try:
             rec = make_record(
                 fecha=fecha,
@@ -103,16 +125,23 @@ def _parse_sheet(
                 source_sheet=sheet_name,
                 source_row=idx + header_row + 2,
             )
+            if tc is not None:
+                if rec.comisiones is not None:
+                    rec.comisiones = round(rec.comisiones * tc, 2)
+                if rec.prima is not None:
+                    rec.prima = round(rec.prima * tc, 2)
+                if rec.premio is not None:
+                    rec.premio = round(rec.premio * tc, 2)
             # Cuando la prima es negativa (devolución), el premio debe serlo también
             if rec.prima is not None and rec.premio is not None and rec.prima < 0 and rec.premio > 0:
                 rec.premio = -rec.premio
             result.records.append(rec)
         except Exception as exc:
-            log.warning("%s %s fila %s: %s", company_name, sheet_name, idx, exc)
+            log.warning("SAN CRISTOBAL %s fila %s: %s", sheet_name, idx, exc)
             reject(result, fname, f"Error: {exc}", source_sheet=sheet_name, source_row=idx, raw=row.to_dict())
 
 
-def _parse(file_path: str, fecha: date, company_name: str) -> ParseResult:
+def _parse(file_path: str, fecha: date, default_usd: bool) -> ParseResult:
     result = ParseResult(parser_name="san_cristobal", source_file=file_path)
     sheets = read_excel_sheets(file_path)
     fname = Path(file_path).name
@@ -120,46 +149,20 @@ def _parse(file_path: str, fecha: date, company_name: str) -> ParseResult:
     for sheet_name, df_raw in sheets.items():
         low = sheet_name.lower()
         if "pas" in low:
-            _parse_sheet(df_raw, sheet_name, fecha, fname, company_name, "PAS", result)
+            _parse_sheet(df_raw, sheet_name, fecha, fname, "PAS", result, default_usd)
         elif "org" in low:
-            _parse_sheet(df_raw, sheet_name, fecha, fname, company_name, "ORG", result)
+            _parse_sheet(df_raw, sheet_name, fecha, fname, "ORG", result, default_usd)
     return result
 
 
 def parse_pesos(file_path: str, fecha: date) -> ParseResult:
-    res = _parse(file_path, fecha, "SAN CRISTOBAL")
+    res = _parse(file_path, fecha, default_usd=False)
     res.parser_name = "san_cristobal"
     return res
 
 
 def parse_usd(file_path: str, fecha: date) -> ParseResult:
-    res = _parse(file_path, fecha, "SAN CRISTOBAL USD")
+    # Archivo dedicado de cuenta USD: todas las filas se convierten.
+    res = _parse(file_path, fecha, default_usd=True)
     res.parser_name = "san_cristobal_usd"
-
-    # Manual: la cuenta USD hay que llevarla a pesos.
-    tc = get_fx("SAN CRISTOBAL")
-    fname = Path(file_path).name
-    if tc is None:
-        original = list(res.records)
-        res.records = []
-        for rec in original:
-            reject(
-                res,
-                fname,
-                "USD sin TC configurado (definir SAN_CRISTOBAL_USD_TC o config/fx.json)",
-                source_sheet=rec.source_sheet,
-                source_row=rec.source_row,
-                compania=rec.compania,
-                raw=rec.to_dict(),
-            )
-        return res
-
-    log.info("SAN CRISTOBAL USD TC aplicado: %s", tc)
-    for rec in res.records:
-        if rec.comisiones is not None:
-            rec.comisiones = round(rec.comisiones * tc, 2)
-        if rec.prima is not None:
-            rec.prima = round(rec.prima * tc, 2)
-        if rec.premio is not None:
-            rec.premio = round(rec.premio * tc, 2)
     return res

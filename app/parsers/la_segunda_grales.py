@@ -40,13 +40,11 @@ def parse(file_path: str, fecha: date, company_name: str = COMPANY) -> ParseResu
     c_sec = find_col(columns, "Seccion")
     c_prima = find_col(columns, "Prima")
     c_premio = find_col(columns, "Premio")
+    # Columnas "MC" (moneda de curso): para filas u$s vienen ya en pesos.
     c_com_pr = find_col(columns, "Com.Prima MC", "Com.Prima")
-    c_com_prem = find_col(columns, "Com.s/premio")
+    c_com_pr_orig = find_col(columns, "Com.Prima")
+    c_com_prem = find_col(columns, "Com.s/premio MC", "Com.s/premio")
     c_mon = find_col(columns, "Mon", "Moneda")
-    # Manual: la columna Com.MC viene en pesos y en USD (en columnas
-    # contiguas). Usamos el cociente como TC para convertir prima/premio.
-    c_com_mc_pesos = find_col(columns, "Com.MC pesos", "Com.Prima MC pesos", "Com Prima MC pesos")
-    c_com_mc_usd = find_col(columns, "Com.MC USD", "Com.Prima MC USD", "Com Prima MC USD")
 
     if not all([c_ref, c_aseg, c_sec, c_prima, c_premio, c_com_pr]):
         reject(result, Path(file_path).name, f"Columnas insuficientes: {columns}", source_sheet=sheet_name)
@@ -57,29 +55,38 @@ def parse(file_path: str, fecha: date, company_name: str = COMPANY) -> ParseResu
         poliza = safe_str(row[c_ref])
         if not poliza or poliza == "0":
             continue
+        # Encabezados repetidos / bloques resumen: la póliza debe tener dígitos.
+        if not any(ch.isdigit() for ch in poliza):
+            continue
+        # El bloque de subtotales al pie no tiene Moneda real (queda vacía o
+        # con importes): exigimos un símbolo de moneda no numérico.
+        if c_mon is not None:
+            mon_str = safe_str(row[c_mon]).strip()
+            if not mon_str or to_float(mon_str) is not None:
+                continue
         source_row = idx + header_row + 2
 
         prima_v = to_float(row[c_prima])
         premio_v = to_float(row[c_premio])
         com_pr_v = to_float(row[c_com_pr])
 
-        # Conversión USD por fila (manual C.5).
+        # Conversión USD por fila: TC = Com.Prima MC (pesos) / Com.Prima (u$s).
         is_usd = False
         if c_mon is not None:
             mon_norm = safe_str(row[c_mon]).strip().upper()
             if mon_norm and mon_norm not in {"$", "PESOS", "ARS", "PESO"}:
                 if any(tok in mon_norm for tok in ("USD", "U$S", "DOLAR", "DOL")):
                     is_usd = True
-        if is_usd and c_com_mc_pesos is not None and c_com_mc_usd is not None:
-            pesos_v = to_float(row[c_com_mc_pesos])
-            usd_v = to_float(row[c_com_mc_usd])
+        if is_usd and c_com_pr_orig is not None and c_com_pr != c_com_pr_orig:
+            pesos_v = to_float(row[c_com_pr])
+            usd_v = to_float(row[c_com_pr_orig])
             if pesos_v is not None and usd_v not in (None, 0):
                 tc = pesos_v / usd_v
                 if tc > 0:
                     if prima_v is not None:
-                        prima_v = prima_v * tc
+                        prima_v = round(prima_v * tc, 2)
                     if premio_v is not None:
-                        premio_v = premio_v * tc
+                        premio_v = round(premio_v * tc, 2)
 
         try:
             rec_pr = make_record(

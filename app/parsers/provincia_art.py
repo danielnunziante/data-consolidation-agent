@@ -40,7 +40,9 @@ def parse(file_path: str, fecha: date) -> ParseResult:
 
     columns = list(df.columns)
     c_pol = find_col(columns, "CONTRATO")
-    c_aseg = find_col(columns, "RAZÓN SOCIAL", "RAZON SOCIAL")
+    # "RAZÓN SOCIAL" a veces llega con la Ó corrupta ("RAZ�N SOCIAL"):
+    # matcheamos también por el fragmento "N SOCIAL".
+    c_aseg = find_col(columns, "RAZÓN SOCIAL", "RAZON SOCIAL", "N SOCIAL")
     c_concepto = find_col(columns, "CONCEPTO")
     c_prima = find_col(columns, "COBRADO NETO IMPUESTOS", "COBRADO NETO")
     c_com = find_col(columns, "MONTO LIQUIDADO")

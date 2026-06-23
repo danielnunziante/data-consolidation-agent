@@ -38,6 +38,7 @@ from .controller import ConsolidationController
 from .models import RunSummary
 from .utils.files import detect_parser, list_input_files
 from .utils.fx import FX_COMPANIES, read_fx_config, write_fx_config
+from .utils.ocr import read_ocr_config, write_ocr_config
 
 
 PERIOD_RE = re.compile(r"^\d{4}-\d{2}$")
@@ -122,6 +123,11 @@ class ConsolidatorApp:
         for display, key in FX_COMPANIES:
             v = fx_persisted.get(key)
             self.var_fx[key] = StringVar(value=("" if v is None else f"{v:g}"))
+
+        # OCR (VICTORIA ART, PDF escaneado): API key de OpenAI del cliente,
+        # pre-llenada con lo persistido en config/ocr.json.
+        ocr_persisted = read_ocr_config()
+        self.var_openai_key = StringVar(value=ocr_persisted.get("openai_api_key", ""))
 
         self.var_input.trace_add("write", lambda *_: self._update_open_folder_state())
         self.var_output.trace_add("write", lambda *_: self._update_open_folder_state())
@@ -356,6 +362,32 @@ class ConsolidatorApp:
             ent.configure(width=110, justify="right", font=FONT_MONO_SM, placeholder_text="1420")
             ent.grid(row=i, column=1, sticky="e", pady=(8, 0))
             self._fx_entries[key] = ent
+
+        # ---- 5 · OCR de PDFs escaneados (OpenAI) ----
+        sec5 = ctk.CTkFrame(scroll, fg_color="transparent")
+        sec5.pack(fill=X, padx=PAD, pady=(18, 16))
+        sec5.grid_columnconfigure(0, weight=1)
+
+        self._overline(sec5, "5 · OCR PDF ESCANEADO (OPCIONAL)").grid(
+            row=0, column=0, sticky="ew"
+        )
+        ctk.CTkLabel(
+            sec5,
+            text=(
+                "VICTORIA ART llega como PDF escaneado. Con la API key de OpenAI "
+                "se leen sus filas automáticamente; si queda vacío, esas filas se "
+                "rechazan y se cargan a mano."
+            ),
+            font=FONT_HINT,
+            text_color=TEXT_MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=WRAP_SIDE,
+        ).grid(row=1, column=0, sticky="ew", pady=(4, 4))
+
+        self.ent_openai_key = self._entry(sec5, self.var_openai_key)
+        self.ent_openai_key.configure(show="•", placeholder_text="sk-…")
+        self.ent_openai_key.grid(row=2, column=0, sticky="ew", pady=(8, 0))
 
     # ---------- Panel derecho: estado + pestañas ----------
     def _build_main(self) -> None:
@@ -730,6 +762,8 @@ class ConsolidatorApp:
         self.btn_clear_log.configure(state=s)
         for ent in getattr(self, "_fx_entries", {}).values():
             ent.configure(state=s)
+        if hasattr(self, "ent_openai_key"):
+            self.ent_openai_key.configure(state=s)
 
     def _set_status_appearance(self, mode: str) -> None:
         self._status_mode = mode
@@ -865,6 +899,17 @@ class ConsolidatorApp:
             messagebox.showerror(
                 "Tipos de cambio",
                 f"No se pudo guardar config/fx.json: {exc}",
+            )
+            return
+
+        # Persistir la API key de OpenAI (OCR). Opcional: si está vacía, el
+        # parser de VICTORIA rechaza sus filas con un motivo claro.
+        try:
+            write_ocr_config(self.var_openai_key.get().strip())
+        except Exception as exc:
+            messagebox.showerror(
+                "OCR",
+                f"No se pudo guardar config/ocr.json: {exc}",
             )
             return
 

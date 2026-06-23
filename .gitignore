@@ -11,5 +11,11 @@ Ejemplos Data/
 # Config de tipos de cambio: se genera/edita desde la GUI por ejecución.
 config/fx.json
 
+# Config de OCR: contiene la API key de OpenAI del cliente. NO versionar.
+config/ocr.json
+
+# Workspace de validación: CSVs/salidas derivados de datos confidenciales del cliente.
+_analysis/
+
 # Manual del cliente extraído como texto para Read tools.
 _manual.txt

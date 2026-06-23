@@ -10,8 +10,16 @@ hiddenimports += collect_submodules('pdfplumber')
 hiddenimports += collect_submodules('pdfminer')
 hiddenimports += collect_submodules('openpyxl')
 hiddenimports += collect_submodules('pandas')
+hiddenimports += collect_submodules('PIL')
+hiddenimports += collect_submodules('pydantic')
 tmp_ret = collect_all('customtkinter')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+
+# OCR de VICTORIA ART: pypdfium2 trae un binario nativo (pdfium), y openai
+# necesita el CA bundle de certifi para las llamadas HTTPS.
+for _pkg in ('pypdfium2', 'openai', 'certifi'):
+    _r = collect_all(_pkg)
+    datas += _r[0]; binaries += _r[1]; hiddenimports += _r[2]
 
 
 a = Analysis(

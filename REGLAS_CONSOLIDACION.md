@@ -517,16 +517,28 @@ Cada fila del consolidado tiene las siguientes columnas:
 
 ### VICTORIA ART
 
-- **Archivo:** PDF
-- Se extrae texto línea por línea con el patrón `POLIZA ASEGURADO PRIMA COMISION`
-- **POLIZA:** número al inicio de la línea (mínimo 4 dígitos)
-- **ASEGURADO:** texto entre la póliza y los importes
-- **SECCION:** fijo `A.R.T.`
-- **TIPO:** `PR` para todos los registros
-- **COMISIONES:** último número de la línea
-- **PRIMA / PREMIO:** penúltimo número de la línea
+- **Archivo:** PDF (en la práctica **siempre escaneado**, sin capa de texto: cada
+  página es una imagen CCITT G4).
+- **Paso 1 — texto:** si el PDF trae texto seleccionable, se extrae línea por línea
+  (`POLIZA ASEGURADO PRIMA COMISION`).
+- **Paso 2 — OCR por visión (OpenAI):** si no hay texto, cada página se rasteriza
+  y se envía a un modelo de visión de OpenAI que lee la tabla
+  (`RESUMEN CUENTA CORRIENTE PRODUCTORES`) y la devuelve como JSON. Ver
+  `app/utils/ocr.py`. **Es opcional**: requiere la API key de OpenAI del cliente
+  (se carga en la GUI, sección 5, o vía `OPENAI_API_KEY` / `config/ocr.json`). Sin
+  key, las filas se rechazan con un motivo claro y se cargan a mano.
+- **Mapeo de columnas** (calibrado contra la base manual ABRIL/MAYO 2026):
+  - **POLIZA:** columna `Póliza`, sin ceros a la izquierda
+  - **ASEGURADO:** `Asegurado s/o Detalle`
+  - **SECCION:** fijo `A.R.T.`
+  - **TIPO:** `PR` para todos
+  - **COMISIONES:** `Imp. Bruto Comisiones`
+  - **PRIMA:** `Prima Cobrada`
+  - **PREMIO:** `Premio Cobrado`
 
-> ⚠️ Si el PDF es escaneado (sin texto seleccionable), la extracción automática no funciona y requiere OCR o carga manual.
+> ⚠️ Inconsistencia del cliente: en MAYO usó `PREMIO = Premio Cobrado` (lo que
+> extraemos), pero en ABRIL copió `PREMIO = Prima Cobrada`. El parser toma siempre
+> la columna real `Premio Cobrado`; ABRIL puede diferir por esto.
 
 ---
 

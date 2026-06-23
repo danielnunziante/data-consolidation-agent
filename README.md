@@ -138,8 +138,11 @@ ART / GENERALES / PERSONAS, LIBRA SEGUROS (PDF), MERCANTIL ANDINA (ARS + USD),
 PREMIAR, PREVENCION ART, PROVINCIA ART, SAN CRISTOBAL (ARS + USD), SANCOR, SMG,
 SMG ART, SMG LIFE, VICTORIA ART (PDF), ZURICH, PARANA ART (PDF).
 
-Para VICTORIA ART: si el PDF viene escaneado sin capa de texto, el archivo se
-omite (requiere OCR manual) y se reporta en `files_skipped`.
+Para VICTORIA ART: el PDF viene escaneado sin capa de texto. Si se configura la
+API key de OpenAI (GUI sección 5, o `OPENAI_API_KEY` / `config/ocr.json`), cada
+página se rasteriza y un modelo de visión lee la tabla automáticamente
+(`app/utils/ocr.py`, usa la cuenta de OpenAI del cliente). Sin key, las filas se
+rechazan con un motivo claro y se cargan a mano.
 
 ## Resolución de problemas
 

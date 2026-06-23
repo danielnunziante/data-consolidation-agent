@@ -141,17 +141,48 @@ def _parse_sheet(
             reject(result, fname, f"Error: {exc}", source_sheet=sheet_name, source_row=idx, raw=row.to_dict())
 
 
+_HEADER_TOKENS = ["CLIENTE", "RAMO", "N° DE PÓLIZA", "COMISIÓN", "PREMIO"]
+
+
+def _classify_sheet(sheet_name: str, df_raw) -> str | None:
+    """Decide si una hoja es de productores ("PAS") u organizadores ("ORG").
+
+    Primero por el nombre (comportamiento histórico) y, si el nombre no lo
+    aclara, por el contenido: la hoja de organizadores trae una columna "ORG".
+    Devuelve None si la hoja no parece tener datos de San Cristóbal.
+    """
+    low = sheet_name.lower()
+    if "pas" in low:
+        return "PAS"
+    if "org" in low:
+        return "ORG"
+
+    # Nombre no reconocido: clasificamos por contenido para no saltear una hoja
+    # en silencio (causa típica de "no veo las filas de la pestaña ORG").
+    header_row = detect_header_row(df_raw, _HEADER_TOKENS)
+    if header_row is None:
+        log.info("SAN CRISTOBAL: hoja %r ignorada (sin cabecera reconocible)", sheet_name)
+        return None
+    columns = [safe_str(v) for v in df_raw.iloc[header_row].tolist()]
+    tipo = "ORG" if find_col(columns, "ORG") else "PAS"
+    log.warning(
+        "SAN CRISTOBAL: hoja %r sin 'PAS'/'ORG' en el nombre; clasificada como %s por contenido",
+        sheet_name,
+        tipo,
+    )
+    return tipo
+
+
 def _parse(file_path: str, fecha: date, default_usd: bool) -> ParseResult:
     result = ParseResult(parser_name="san_cristobal", source_file=file_path)
     sheets = read_excel_sheets(file_path)
     fname = Path(file_path).name
 
     for sheet_name, df_raw in sheets.items():
-        low = sheet_name.lower()
-        if "pas" in low:
-            _parse_sheet(df_raw, sheet_name, fecha, fname, "PAS", result, default_usd)
-        elif "org" in low:
-            _parse_sheet(df_raw, sheet_name, fecha, fname, "ORG", result, default_usd)
+        sheet_tipo = _classify_sheet(sheet_name, df_raw)
+        if sheet_tipo is None:
+            continue
+        _parse_sheet(df_raw, sheet_name, fecha, fname, sheet_tipo, result, default_usd)
     return result
 
 

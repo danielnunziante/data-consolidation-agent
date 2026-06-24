@@ -14,12 +14,58 @@ Cada fila del consolidado tiene las siguientes columnas:
 | **FECHA** | Fecha del período procesado |
 | **POLIZA** | Número de póliza o contrato |
 | **ASEGURADO** | Nombre del tomador / razón social |
-| **SECCION** | Ramo o sección de la póliza |
+| **SECCION** | Ramo o sección de la póliza (**normalizada** a un vocabulario único — ver más abajo) |
 | **COMPAÑÍA** | Nombre de la aseguradora |
 | **TIPO** | `PR` = Productor · `AY` = Ayudante / Cobranzas · `IND` = Independiente |
 | **COMISIONES** | Comisión neta |
 | **PRIMA** | Prima técnica o base de cálculo |
 | **PREMIO** | Premio cobrado |
+
+---
+
+## Normalización de la columna SECCION
+
+Cada aseguradora nombra sus ramos de forma distinta: códigos numéricos (`4`,
+`51`), abreviaturas (`Autos`, `Consor.`), o textos con prefijo (`09 -
+AUTOMOTORES`, `001 Incendio`). Para que el consolidado quede homogéneo, después
+de procesar todos los archivos el sistema **reemplaza el valor crudo de SECCION
+por un nombre normalizado**, según una tabla de equivalencias por compañía.
+
+- **Fuente de la tabla:** `Ejemplos Data/EQUIVALENCIAS.xlsx` (hoja `DATOS`, con
+  columnas `CODIGO | COMPAÑÍA | SECCION`). Es la fuente que mantiene el cliente.
+- **Cómo se aplica en el programa:** el Excel se convierte a un módulo Python
+  (`app/utils/seccion_equivalencias.py`) con el script
+  `scripts/build_equivalencias.py`. **Cada vez que el cliente actualiza el
+  Excel hay que volver a correr ese script** y recompilar:
+  ```bash
+  python scripts/build_equivalencias.py
+  ```
+- **Matching tolerante:** ignora mayúsculas/minúsculas, espacios sobrantes y
+  ceros a la izquierda en códigos numéricos (`01` = `1`). Las compañías USD
+  reutilizan la tabla de su versión en pesos (ej.: `SAN CRISTOBAL USD` usa la de
+  `SAN CRISTOBAL`).
+- **Si un código no tiene equivalencia:** se conserva el valor crudo tal como
+  venía (no se pierde información) y se lista en el `process_log.txt` bajo
+  `SECCION: N filas sin equivalencia`, para poder completar la tabla.
+
+### Override sin recompilar (opcional)
+
+Para agregar o corregir equivalencias sin regenerar el ejecutable, se puede
+crear `config/equivalencias_seccion.json` junto al programa. Pisa la tabla
+incorporada. Formato:
+
+```json
+{
+  "MERCANTIL ANDINA": { "51": "AUTOMOTORES" },
+  "SANCOR": { "300": "ACCIDENTES PERSONALES" }
+}
+```
+
+> ℹ️ Algunos valores ya vienen en forma canónica desde el parser (fijos como
+> `A.R.T.`, `CAUCION`, `PREPAGA MEDICA`, o las secciones ya normalizadas de
+> `QBE-ZURICH`) y por eso aparecen "sin equivalencia" pero quedan correctos. El
+> caso a revisar es `LA HOLANDO GENERALES`, cuya SECCION hoy trae el nombre del
+> asegurado en vez del ramo (limitación del parser, no de esta tabla).
 
 ---
 

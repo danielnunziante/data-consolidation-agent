@@ -14,6 +14,7 @@ from .parsers import get_parser
 from .utils.dates import first_day_of_period
 from .utils.files import detect_parser, ensure_parent_dir, list_input_files
 from .utils.logging_utils import configure_logger
+from .utils.seccion import normalize_records
 from .validators import (
     expected_counts_warnings,
     summarize_by_company,
@@ -124,6 +125,19 @@ class ConsolidationController:
                 len(result.records),
                 len(result.rejected),
             )
+
+        # Normalizar la columna SECCION según equivalencias por compañía
+        unmapped = normalize_records(all_records)
+        if unmapped:
+            total_unmapped = sum(unmapped.values())
+            logger.info(
+                "SECCION: %d filas sin equivalencia (se conserva el valor crudo) "
+                "en %d combinaciones (compañía, sección):",
+                total_unmapped,
+                len(unmapped),
+            )
+            for (comp, sec), n in sorted(unmapped.items(), key=lambda kv: (-kv[1], kv[0])):
+                logger.info("  - %s | %r x%d", comp, sec, n)
 
         # Validar + construir workbook
         step += 1

@@ -31,6 +31,22 @@ def _extract_poliza(nro_op: str) -> str:
     return strip_leading_zeros(tokens[0]) or tokens[0]
 
 
+def _extract_seccion_code(nro_op: str) -> str:
+    """El prefijo de NroOperacion identifica el ramo/sección, no el asegurado.
+
+    Ej.: 'Aut.- 0014015393- 0000020' -> 'Aut.';
+         'Com.- 0004580919- 0000000' -> 'Com.';
+         'R.C.- 0000113177- 0000000' -> 'R.C.'.
+
+    La tabla de equivalencias (LA HOLANDO GENERALES) mapea estos códigos al
+    vocabulario único de secciones.
+    """
+    s = safe_str(nro_op)
+    if not s:
+        return ""
+    return s.split("-")[0].strip()
+
+
 def parse(file_path: str, fecha: date) -> ParseResult:
     result = ParseResult(parser_name="la_holando", source_file=file_path)
     sheets = read_excel_sheets(file_path)
@@ -88,7 +104,9 @@ def parse(file_path: str, fecha: date) -> ParseResult:
             seccion = "A.R.T."
         else:
             compania = "LA HOLANDO GENERALES"
-            seccion = safe_str(row[c_det]) if c_det else safe_str(row[c_rama])
+            # El asegurado va en Detalle Operacion; la SECCION es el prefijo de
+            # NroOperacion (Aut./Com./Col./Obl./R.C.), no el nombre del asegurado.
+            seccion = _extract_seccion_code(nro_op)
 
         try:
             rec = make_record(

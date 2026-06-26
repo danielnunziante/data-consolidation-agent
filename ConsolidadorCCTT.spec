@@ -21,6 +21,11 @@ for _pkg in ('pypdfium2', 'openai', 'certifi'):
     _r = collect_all(_pkg)
     datas += _r[0]; binaries += _r[1]; hiddenimports += _r[2]
 
+# Override editable de equivalencias de SECCION (lo consume app/utils/seccion.py
+# desde <bundle>/_internal/config/). Incluye, p.ej., LA HOLANDO GENERALES R.C.
+# -> RESPONSABILIDAD CIVIL. El cliente puede editarlo sin recompilar.
+datas += [('config/equivalencias_seccion.json', 'config')]
+
 
 a = Analysis(
     ['app\\main.py'],
